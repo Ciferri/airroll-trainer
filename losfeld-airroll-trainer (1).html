@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Méthode Losfeld — Airroll Trainer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap');
+  :root {
+    --bg:#0e0e12;--bg2:#16161d;--bg3:#1e1e28;--bg4:#22222e;
+    --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+    --text:#f0f0f4;--text2:#9090a8;--text3:#60607a;
+    --blue:#4f8ef7;--blue-bg:rgba(79,142,247,0.12);
+    --green:#3ecf8e;--green-bg:rgba(62,207,142,0.12);
+    --orange:#f97316;--orange-bg:rgba(249,115,22,0.12);
+    --red:#f43f5e;--red-bg:rgba(244,63,94,0.12);
+    --yellow:#facc15;--yellow-bg:rgba(250,204,21,0.10);
+    --purple:#a78bfa;--purple-bg:rgba(167,139,250,0.12);
+    --radius:10px;--radius-lg:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.6}
+  .app{display:flex;min-height:100vh}
+
+  /* SIDEBAR */
+  .sidebar{width:230px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:24px 0;position:fixed;top:0;left:0;bottom:0;z-index:10;overflow-y:auto}
+  .sidebar-logo{padding:0 20px 20px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  .brand{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;letter-spacing:-.02em}
+  .brand span{color:var(--blue)}
+  .brand-sub{font-size:11px;color:var(--text3);margin-top:2px}
+  .nav-section{padding:0 12px;margin-bottom:4px}
+  .nav-label{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;padding:0 8px;margin-bottom:6px}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);cursor:pointer;color:var(--text2);font-size:13px;transition:all .15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left;font-family:inherit}
+  .nav-item:hover{background:var(--bg3);color:var(--text)}
+  .nav-item.active{background:var(--blue-bg);color:var(--blue)}
+  .nav-item svg{width:16px;height:16px;flex-shrink:0}
+  .sidebar-bottom{margin-top:auto;padding:16px 20px 0;border-top:1px solid var(--border)}
+  .streak-badge{display:flex;align-items:center;gap:8px;background:var(--orange-bg);border:1px solid rgba(249,115,22,.2);border-radius:var(--radius);padding:10px 12px}
+  .streak-count{font-size:18px;font-weight:600;color:var(--orange);font-family:'Space Grotesk',sans-serif}
+  .streak-label{font-size:11px;color:var(--text2)}
+
+  /* MAIN */
+  .main{margin-left:230px;flex:1;padding:32px 40px;max-width:calc(100% - 230px)}
+  .page{display:none}.page.active{display:block}
+  .page-header{margin-bottom:28px}
+  .page-title{font-family:'Space Grotesk',sans-serif;font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+  .page-sub{font-size:13px;color:var(--text2)}
+  .section-title{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px;letter-spacing:-.01em}
+
+  /* CARDS */
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 24px;margin-bottom:16px}
+  .card-sm{padding:14px 18px}
+
+  /* BADGES */
+  .badge{font-size:11px;font-weight:500;padding:3px 10px;border-radius:20px;border:1px solid;white-space:nowrap}
+  .badge-green{background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.25)}
+  .badge-orange{background:var(--orange-bg);color:var(--orange);border-color:rgba(249,115,22,.25)}
+  .badge-red{background:var(--red-bg);color:var(--red);border-color:rgba(244,63,94,.25)}
+  .badge-blue{background:var(--blue-bg);color:var(--blue);border-color:rgba(79,142,247,.25)}
+  .badge-purple{background:var(--purple-bg);color:var(--purple);border-color:rgba(167,139,250,.25)}
+
+  /* PILLARS */
+  .pillars-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}
+  .pillar-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px}
+  .pillar-icon{font-size:22px;margin-bottom:8px}
+  .pillar-title{font-size:13px;font-weight:600;margin-bottom:4px}
+  .pillar-sub{font-size:12px;color:var(--text2)}
+
+  /* PROGRESS */
+  .prog-wrap{margin-bottom:20px}
+  .prog-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .prog-label{font-size:12px;font-weight:500;color:var(--text2)}
+  .prog-count{font-size:12px;font-weight:600;color:var(--blue);font-family:'Space Grotesk',sans-serif}
+  .prog-bar{height:6px;background:var(--bg3);border-radius:4px;overflow:hidden}
+  .prog-fill{height:100%;background:linear-gradient(90deg,var(--blue),#818cf8);border-radius:4px;transition:width .5s ease}
+
+  /* EXERCISES (concepts) */
+  .ex-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:12px;overflow:hidden;transition:border-color .2s}
+  .ex-card:hover{border-color:var(--border2)}
+  .ex-card.done{border-color:rgba(62,207,142,.3)}
+  .ex-header{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;transition:background .15s}
+  .ex-header:hover{background:var(--bg3)}
+  .ex-card.done .ex-header{background:rgba(62,207,142,.03)}
+  .ex-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;flex-shrink:0;background:var(--bg3);color:var(--text2);border:1px solid var(--border);transition:all .2s}
+  .ex-card.done .ex-num{background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.3)}
+  .ex-info{flex:1}
+  .ex-title{font-size:15px;font-weight:600;margin-bottom:2px}
+  .ex-meta{font-size:12px;color:var(--text2)}
+  .ex-badges{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .chevron{color:var(--text3);transition:transform .2s;flex-shrink:0}
+  .chevron.open{transform:rotate(180deg)}
+  .ex-body{display:none;padding:0 20px 20px;border-top:1px solid var(--border)}
+  .ex-body.open{display:block}
+  .ex-desc{font-size:13px;color:var(--text2);line-height:1.7;margin:14px 0 14px}
+  .steps-list{margin-bottom:14px}
+  .step-item{display:flex;gap:12px;padding:10px 14px;background:var(--bg3);border-radius:var(--radius);margin-bottom:6px;font-size:13px;color:var(--text2);line-height:1.5}
+  .step-n{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;color:var(--blue);flex-shrink:0;margin-top:1px}
+  .ex-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:4px}
+  .time-chip{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)}
+
+  /* PROGRAMME / SÉRIES */
+  .serie-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:12px;overflow:hidden}
+  .serie-header{display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;transition:background .15s}
+  .serie-header:hover{background:var(--bg3)}
+  .serie-num{width:36px;height:36px;border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-size:14px;font-weight:700;flex-shrink:0;background:var(--blue-bg);color:var(--blue);border:1px solid rgba(79,142,247,.25)}
+  .serie-info{flex:1}
+  .serie-title{font-size:14px;font-weight:600;margin-bottom:2px}
+  .serie-meta{font-size:12px;color:var(--text2)}
+  .serie-body{display:none;padding:0 20px 20px;border-top:1px solid var(--border)}
+  .serie-body.open{display:block}
+  .serie-desc{font-size:13px;color:var(--text2);line-height:1.7;margin:12px 0 12px}
+
+  /* REPS COUNTER */
+  .reps-row{display:flex;align-items:center;gap:12px;margin:12px 0}
+  .reps-label{font-size:13px;color:var(--text2);flex:1}
+  .reps-counter{display:flex;align-items:center;gap:8px}
+  .reps-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;font-family:inherit}
+  .reps-btn:hover{background:var(--bg4)}
+  .reps-val{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:var(--text);min-width:28px;text-align:center}
+  .reps-target{font-size:11px;color:var(--text3)}
+  .dots-row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
+  .rep-dot{width:14px;height:14px;border-radius:50%;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;transition:background .15s}
+  .rep-dot.filled{background:var(--green);border-color:var(--green)}
+  .rep-dot.filled-cont{background:var(--blue);border-color:var(--blue)}
+  .reset-reps{font-size:11px;color:var(--text3);cursor:pointer;border:none;background:none;font-family:inherit;padding:0;margin-top:4px}
+  .reset-reps:hover{color:var(--text2)}
+
+  /* INFO BOXES */
+  .info-box{border-radius:var(--radius);padding:12px 16px;font-size:13px;line-height:1.6;margin-bottom:12px;display:flex;gap:10px;align-items:flex-start}
+  .info-box.blue{background:var(--blue-bg);color:#93c5fd;border:1px solid rgba(79,142,247,.2)}
+  .info-box.orange{background:var(--orange-bg);color:#fdba74;border:1px solid rgba(249,115,22,.2)}
+  .info-box.green{background:var(--green-bg);color:#6ee7b7;border:1px solid rgba(62,207,142,.2)}
+  .info-box.purple{background:var(--purple-bg);color:#c4b5fd;border:1px solid rgba(167,139,250,.2)}
+  .info-box.yellow{background:var(--yellow-bg);color:#fde68a;border:1px solid rgba(250,204,21,.2)}
+  .info-box-icon{flex-shrink:0;font-size:15px;margin-top:1px}
+
+  /* PHYSICS */
+  .physics-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .physics-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+  .physics-title{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .physics-body{font-size:12px;color:var(--text2);line-height:1.6}
+  .frac-table{width:100%;border-collapse:collapse;font-size:13px}
+  .frac-table th{text-align:left;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:6px 12px;border-bottom:1px solid var(--border)}
+  .frac-table td{padding:8px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+  .frac-table td:first-child{font-family:'Space Grotesk',sans-serif;font-weight:600;color:var(--blue)}
+  .frac-table tr:last-child td{border-bottom:none}
+
+  /* TOOLS CARDS */
+  .tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px}
+  .tool-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px}
+  .tool-icon{font-size:22px;margin-bottom:8px}
+  .tool-title{font-size:14px;font-weight:600;margin-bottom:6px}
+  .tool-sub{font-size:12px;color:var(--text2);line-height:1.6}
+  .tool-seq{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:8px}
+  .seq-step{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600;color:var(--text);font-family:'Space Grotesk',sans-serif}
+  .seq-arrow{color:var(--text3);font-size:11px}
+
+  /* MAPS */
+  .maps-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .map-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px}
+  .map-card.good{border-color:rgba(62,207,142,.25)}
+  .map-card.bad{border-color:rgba(244,63,94,.2)}
+  .map-title{font-size:12px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .map-list{list-style:none;font-size:12px;color:var(--text2);line-height:1.9}
+  .map-card.good .map-list li::before{content:'✓ ';color:var(--green)}
+  .map-card.bad .map-list li::before{content:'✗ ';color:var(--red)}
+
+  /* BUTTONS */
+  .check-btn{display:flex;align-items:center;gap:8px;padding:8px 18px;border-radius:var(--radius);border:1px solid var(--border2);background:transparent;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;transition:all .15s;font-family:inherit}
+  .check-btn:hover{background:var(--bg3);color:var(--text)}
+  .check-btn.checked{background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.3)}
+  .btn-primary{padding:10px 22px;border-radius:var(--radius);background:var(--blue-bg);color:var(--blue);border:1px solid rgba(79,142,247,.3);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:all .15s}
+  .btn-primary:hover{background:rgba(79,142,247,.2)}
+
+  /* STATS */
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:24px}
+  .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px}
+  .stat-val{font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;line-height:1;margin-bottom:6px}
+  .stat-label{font-size:12px;color:var(--text2)}
+
+  /* CALENDAR */
+  .cal-header{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+  .cal-day-label{text-align:center;font-size:10px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cal-day{aspect-ratio:1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg3);color:var(--text3);transition:all .15s}
+  .cal-day:hover{border-color:var(--border2);color:var(--text2)}
+  .cal-day.trained{background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.3)}
+  .cal-day.today{border-color:var(--blue);color:var(--blue)}
+  .cal-day.today.trained{background:var(--green-bg);border-color:var(--green);color:var(--green)}
+  .cal-day.empty{background:transparent;border-color:transparent;cursor:default}
+
+  /* QUIZ */
+  .quiz-q{font-size:16px;font-weight:600;margin-bottom:16px;line-height:1.5}
+  .quiz-opts{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+  .quiz-opt{padding:12px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);font-size:13px;color:var(--text2);cursor:pointer;text-align:left;transition:all .15s;font-family:inherit}
+  .quiz-opt:hover:not(:disabled){border-color:var(--border2);color:var(--text)}
+  .quiz-opt.correct{background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.35)}
+  .quiz-opt.wrong{background:var(--red-bg);color:var(--red);border-color:rgba(244,63,94,.3)}
+  .quiz-feedback{font-size:13px;color:var(--text2);padding:10px 14px;background:var(--bg3);border-radius:var(--radius);margin-bottom:14px;display:none;line-height:1.6}
+  .quiz-feedback.show{display:block}
+  .quiz-next{padding:10px 22px;border-radius:var(--radius);background:var(--blue-bg);color:var(--blue);border:1px solid rgba(79,142,247,.3);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;display:none;align-items:center;gap:6px}
+  .quiz-next.show{display:inline-flex}
+  .quiz-prog-row{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .quiz-score{font-size:12px;color:var(--text2)}
+  .quiz-score strong{color:var(--blue);font-family:'Space Grotesk',sans-serif}
+
+  /* VOCAB */
+  .vocab-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .vocab-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+  .vocab-term{font-size:13px;font-weight:600;color:var(--blue);margin-bottom:6px}
+  .vocab-def{font-size:12px;color:var(--text2);line-height:1.6}
+
+  /* WARN */
+  .warn-box{background:var(--yellow-bg);border:1px solid rgba(250,204,21,.2);border-radius:var(--radius-lg);padding:14px 18px;font-size:13px;color:#fde68a;line-height:1.6;margin-bottom:20px;display:flex;gap:10px;align-items:flex-start}
+
+  /* TABS */
+  .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg3);border-radius:var(--radius);padding:4px}
+  .tab-btn{flex:1;padding:8px;border-radius:8px;border:none;background:transparent;font-size:13px;font-weight:500;color:var(--text2);cursor:pointer;transition:all .15s;font-family:inherit}
+  .tab-btn.active{background:var(--bg2);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+  .tab-content{display:none}.tab-content.active{display:block}
+
+  /* RESPONSIVE */
+  @media(max-width:768px){
+    .sidebar{width:100%;height:auto;position:static;flex-direction:row;padding:12px;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border)}
+    .sidebar-logo,.sidebar-bottom{display:none}
+    .nav-section{display:flex;gap:4px;padding:0;margin:0}
+    .nav-label{display:none}
+    .nav-item{padding:8px 12px;white-space:nowrap}
+    .main{margin-left:0;max-width:100%;padding:20px 16px}
+    .app{flex-direction:column}
+    .pillars-grid,.physics-grid,.maps-grid,.tools-grid{grid-template-columns:1fr}
+  }
+  /* CHEAT SHEET */
+  .cs-section{margin-bottom:24px}
+  .cs-table{width:100%;border-collapse:collapse;font-size:13px}
+  .cs-table th{text-align:left;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg3)}
+  .cs-table td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top;line-height:1.55}
+  .cs-table tr:last-child td{border-bottom:none}
+  .cs-table tr:hover td{background:rgba(255,255,255,.025)}
+  .cs-table td:first-child{font-family:'Space Grotesk',sans-serif;font-weight:600;color:var(--text);white-space:nowrap}
+  .cs-table td.result{color:var(--text)}
+  .cs-table td.usage{color:var(--text3);font-size:12px;font-style:italic}
+  .dir-chip{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:5px;font-size:13px;font-weight:700;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:'Space Grotesk',sans-serif;vertical-align:middle}
+  .arrow-right{color:var(--text3);font-size:11px;margin:0 3px;vertical-align:middle}
+  .tag-straight{color:var(--green);font-weight:600}
+  .tag-right{color:var(--blue);font-weight:600}
+  .tag-left{color:var(--orange);font-weight:600}
+  .tag-up{color:var(--purple);font-weight:600}
+  .tag-tip{font-size:11px;color:var(--text3);display:block;margin-top:3px}
+  .cs-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .cs-filter-btn{padding:5px 14px;border-radius:20px;border:1px solid var(--border);background:transparent;font-size:12px;color:var(--text2);cursor:pointer;transition:all .15s;font-family:inherit}
+  .cs-filter-btn:hover{background:var(--bg3);color:var(--text)}
+  .cs-filter-btn.active{background:var(--blue-bg);color:var(--blue);border-color:rgba(79,142,247,.3)}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="brand">Airroll<span>.</span>gg</div>
+    <div class="brand-sub">Méthode Losfeld · ARD</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Navigation</div>
+    <button class="nav-item active" onclick="showPage('home',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>Accueil
+    </button>
+    <button class="nav-item" onclick="showPage('physique',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>Physique du jeu
+    </button>
+    <button class="nav-item" onclick="showPage('outils',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>Les 3 outils de vol
+    </button>
+    <button class="nav-item" onclick="showPage('programme',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Programme 30 min
+    </button>
+    <button class="nav-item" onclick="showPage('maps',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1,6 1,22 8,18 16,22 23,18 23,2 16,6 8,2"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Rings Maps
+    </button>
+    <button class="nav-item" onclick="showPage('suivi',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Suivi
+    </button>
+    <button class="nav-item" onclick="showPage('quiz',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17" stroke-width="3" stroke-linecap="round"/></svg>Quiz
+    </button>
+    <button class="nav-item" onclick="showPage('gamepad',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="12" rx="4"/><path d="M7 13v-2M6 12h2M15 11h2M17 13h-2"/><circle cx="17" cy="11" r=".5" fill="currentColor"/><circle cx="19" cy="13" r=".5" fill="currentColor"/></svg>Manette Live
+    </button>
+    <button class="nav-item" onclick="showPage('cheatsheet',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg>Cheat Sheet
+    </button>
+    <button class="nav-item" onclick="showPage('vocab',this)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>Vocabulaire
+    </button>
+  </div>
+  <div class="sidebar-bottom">
+    <div class="streak-badge">
+      <div style="font-size:20px">🔥</div>
+      <div><div class="streak-count" id="sb-streak">0</div><div class="streak-label">jours de suite</div></div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+
+<!-- HOME -->
+<div class="page active" id="page-home">
+  <div class="page-header">
+    <div class="page-title">Méthode Losfeld 🚀</div>
+    <div class="page-sub">Airroll Directionnel (ARD) · 30 min/jour en Freeplay · Ne touche pas la balle avant de maîtriser la voiture</div>
+  </div>
+  <div class="info-box blue" style="margin-bottom:20px">
+    <span class="info-box-icon">💡</span>
+    <span><strong>ARL ou ARR ?</strong> Tous les exemples sont pour l'<strong>Air Roll Left (ARL)</strong>. Pour l'Air Roll Right (ARR), inverse les axes gauche/droite.</span>
+  </div>
+  <div class="pillars-grid">
+    <div class="pillar-card"><div class="pillar-icon">🎯</div><div class="pillar-title">Quel input ?</div><div class="pillar-sub">La direction physique sur le joystick</div></div>
+    <div class="pillar-card"><div class="pillar-icon">⏱️</div><div class="pillar-title">Quand ? (tempo)</div><div class="pillar-sub">Toujours à la révolution neutre</div></div>
+    <div class="pillar-card"><div class="pillar-icon">🔄</div><div class="pillar-title">Combien de temps ? (rythme)</div><div class="pillar-sub">Court · 50% · 100% d'une révolution</div></div>
+  </div>
+  <div class="info-box orange" style="margin-bottom:20px">
+    <span class="info-box-icon">⚡</span>
+    <span><strong>Règle d'or :</strong> À chaque input joystick, appuie <strong>simultanément sur le Boost</strong> pour ressentir la direction générée. Utilise toujours Reset entre chaque tentative pour gagner du temps.</span>
+  </div>
+  <div class="prog-wrap">
+    <div class="prog-header"><span class="prog-label">Progression — 3 outils maîtrisés</span><span class="prog-count" id="prog-count-home">0 / 3</span></div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill-home" style="width:0%"></div></div>
+  </div>
+  <div class="warn-box"><span style="flex-shrink:0;font-size:16px">⚠️</span><div>N'essaie pas les Rings Maps avant <strong>4–5 jours de programme Freeplay</strong>. Si tu te frustres, reviens en Freeplay.</div></div>
+  <div class="section-title">Les 3 outils de vol</div>
+  <div class="tools-grid">
+    <div class="tool-card"><div class="tool-icon">↔️</div><div class="tool-title">Inputs uniques</div><div class="tool-sub">Tourner simplement : pichenette, 50%, ou 100% d'une révolution vers le Haut/Bas à la révolution neutre.</div></div>
+    <div class="tool-card"><div class="tool-icon">🔁</div><div class="tool-title">Horloges</div><div class="tool-sub">Stabiliser et ressentir. Tour complet du joystick. Les inputs s'annulent = vol droit + feeling du poids.
+      <div class="tool-seq"><span class="seq-step">Droite</span><span class="seq-arrow">→</span><span class="seq-step">Bas</span><span class="seq-arrow">→</span><span class="seq-step">Gauche</span><span class="seq-arrow">→</span><span class="seq-step">Haut</span></div></div>
+    </div>
+    <div class="tool-card"><div class="tool-icon">🔀</div><div class="tool-title">Horloges inversées</div><div class="tool-sub">Virages agressifs et freinage. Accentue la direction. Lente = vire. Rapide = lève/baisse le nez.
+      <div class="tool-seq"><span class="seq-step">Bas</span><span class="seq-arrow">→</span><span class="seq-step">Droite</span><span class="seq-arrow">→</span><span class="seq-step">Haut</span><span class="seq-arrow">→</span><span class="seq-step">Gauche</span></div></div>
+    </div>
+  </div>
+  <div class="section-title">Routine du jour — Séries</div>
+  <div id="home-series-list"></div>
+</div>
+
+<!-- PHYSIQUE -->
+<div class="page" id="page-physique">
+  <div class="page-header">
+    <div class="page-title">Physique du jeu</div>
+    <div class="page-sub">Comprendre pourquoi la voiture réagit — la base mathématique de l'ARD</div>
+  </div>
+  <div class="card">
+    <div class="section-title">Pourquoi ne pas apprendre par cœur ?</div>
+    <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:12px">Le joystick a <strong style="color:var(--text)">8 directions</strong>. La révolution a <strong style="color:var(--text)">4 angles principaux</strong>. Cela représente <strong style="color:var(--orange)">32 variables uniques</strong> et jusqu'à <strong style="color:var(--red)">256 combinaisons</strong>. Impossible à mémoriser.</p>
+    <div class="info-box green"><span class="info-box-icon">🧠</span><span><strong>La solution — La Constante :</strong> ancrer tout l'apprentissage sur la <strong>Révolution Neutre</strong> (capot face à la caméra ou au ciel). Un seul repère pour tout.</span></div>
+  </div>
+  <div class="section-title">Les deux types de mouvement</div>
+  <div class="physics-grid">
+    <div class="physics-card">
+      <div class="physics-title"><span style="color:var(--blue)">↔</span> Symétrique — Tout droit</div>
+      <div class="physics-body"><p style="margin-bottom:8px">Input : <strong style="color:var(--text)">Joystick à Droite</strong> (Tornado Spin) avec ARL</p><p style="margin-bottom:8px">Divise l'axe de la voiture de manière <strong style="color:var(--text)">parfaitement symétrique</strong>. Aucune roue verrouillée.</p><p>Résultat : la voiture vrille mais avance <strong style="color:var(--green)">tout droit</strong>.</p></div>
+    </div>
+    <div class="physics-card">
+      <div class="physics-title"><span style="color:var(--orange)">↕</span> Asymétrique — Tourner</div>
+      <div class="physics-body"><p style="margin-bottom:8px">Input : <strong style="color:var(--text)">Haut ou Bas</strong> avec ARL</p><p style="margin-bottom:8px">Verrouille deux roues en diagonale. Crée un axe asymétrique.</p><p>Avec Boost : la voiture est forcée de <strong style="color:var(--orange)">pivoter et changer de direction</strong>.</p></div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-bottom:10px">Verrouillage des roues (ARL)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="step-item"><span class="step-n">↑</span><span><strong style="color:var(--text)">Haut</strong> → avant-droite + arrière-gauche → <span style="color:var(--blue)">tourne à droite</span></span></div>
+      <div class="step-item"><span class="step-n">↓</span><span><strong style="color:var(--text)">Bas</strong> → avant-gauche + arrière-droite → <span style="color:var(--orange)">tourne à gauche</span></span></div>
+    </div>
+  </div>
+  <div class="section-title">Isolation de vecteurs (Horloges inversées)</div>
+  <div class="card">
+    <p style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:14px">Chaque input génère deux vecteurs simultanés. La <strong style="color:var(--text)">vitesse d'exécution</strong> détermine lequel survit :</p>
+    <div class="physics-grid">
+      <div class="physics-card"><div class="physics-title"><span>🐢</span> Rythme lent</div><div class="physics-body">Le <strong style="color:var(--text)">vecteur horizontal</strong> se développe. La voiture tourne largement vers les côtés.</div></div>
+      <div class="physics-card"><div class="physics-title"><span>⚡</span> Rythme rapide</div><div class="physics-body"><strong style="color:var(--text)">Coupe le vecteur horizontal.</strong> Seul le vecteur vertical survit : lève ou baisse le nez sans dériver.</div></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="section-title" style="font-size:13px;margin-bottom:8px">Fractions d'horloges inversées</div>
+      <table class="frac-table">
+        <thead><tr><th>Fraction</th><th>Résultat</th></tr></thead>
+        <tbody>
+          <tr><td>3/4 d'horloge inversée</td><td>Rotation à 90°</td></tr>
+          <tr><td>1 horloge inversée + 1/4</td><td>Demi-tour complet — 180°</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title">Analogies de Losfeld</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="step-item"><span class="step-n">🛹</span><span><strong style="color:var(--text)">Skateboard</strong> — L'ARD est le "Ollie". Une fois maîtrisé, Flip Resets et Air Dribbles deviennent accessibles.</span></div>
+      <div class="step-item"><span class="step-n">🎸</span><span><strong style="color:var(--text)">Instrument</strong> — Refonte de la mémoire musculaire. Frustration inévitable. Discipline stricte requise.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- OUTILS -->
+<div class="page" id="page-outils">
+  <div class="page-header">
+    <div class="page-title">Les 3 outils de vol</div>
+    <div class="page-sub">Les trois façons de manipuler le joystick pendant l'airroll — chacun a un but précis</div>
+  </div>
+  <div id="outils-list"></div>
+</div>
+
+<!-- PROGRAMME -->
+<div class="page" id="page-programme">
+  <div class="page-header">
+    <div class="page-title">Programme 30 min/jour 💪</div>
+    <div class="page-sub">Freeplay · Au centre du terrain · Sans balle · Reset entre chaque tentative</div>
+  </div>
+  <div class="info-box orange" style="margin-bottom:16px">
+    <span class="info-box-icon">⚡</span>
+    <span><strong>Toujours Boost + input simultané.</strong> Divise les 30 min équitablement entre les 6 séries. Réinitialise la voiture (Reset) après chaque tentative.</span>
+  </div>
+  <div id="series-list"></div>
+</div>
+
+<!-- RINGS MAPS -->
+<div class="page" id="page-maps">
+  <div class="page-header">
+    <div class="page-title">Rings Maps</div>
+    <div class="page-sub">Seulement après 4–5 jours de programme Freeplay solide</div>
+  </div>
+  <div class="warn-box"><span style="flex-shrink:0;font-size:16px">⚠️</span><div>Si tu te frustres sur une map, reviens en Freeplay. Vole toujours <strong>lentement à la verticale</strong> en tapotant le boost.</div></div>
+  <div class="section-title">Cartes recommandées vs à éviter</div>
+  <div class="maps-grid" style="margin-bottom:16px">
+    <div class="map-card good">
+      <div class="map-title"><span style="color:var(--green)">✓</span> Maps recommandées</div>
+      <ul class="map-list"><li>Neon Heights</li><li>Medieval Rings</li><li>Orbital Rings</li><li>Fractal</li><li>Speed Jump Rings 2</li></ul>
+    </div>
+    <div class="map-card bad">
+      <div class="map-title"><span style="color:var(--red)">✗</span> À proscrire (trop dures)</div>
+      <ul class="map-list"><li>Lava Rings</li><li>Landens Rings</li><li>Future Rings</li></ul>
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-title">Méthodologie en 3 niveaux</div>
+    <div class="steps-list">
+      <div class="step-item"><span class="step-n">1</span><span>Fais un niveau entier en n'utilisant que des <strong style="color:var(--text)">inputs uniques Haut/Bas</strong> (outil 1)</span></div>
+      <div class="step-item"><span class="step-n">2</span><span>Sur le niveau suivant, intègre les <strong style="color:var(--text)">Horloges classiques</strong> dans les lignes droites pour stabiliser (outil 2)</span></div>
+      <div class="step-item"><span class="step-n">3</span><span>Enfin, intègre les <strong style="color:var(--text)">Horloges Inversées</strong> pour les virages serrés, redresser le nez et ajuster la vitesse (outil 3)</span></div>
+    </div>
+    <div class="info-box blue" style="margin-top:4px"><span class="info-box-icon">💡</span><span>Ne brûle pas les étapes. Maîtrise chaque niveau de map avant de passer au suivant.</span></div>
+  </div>
+</div>
+
+<!-- SUIVI -->
+<div class="page" id="page-suivi">
+  <div class="page-header">
+    <div class="page-title">Suivi des sessions</div>
+    <div class="page-sub">Clique sur un jour pour valider ta session</div>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-val" id="stat-total">0</div><div class="stat-label">Sessions totales</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-streak">0</div><div class="stat-label">Série actuelle 🔥</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-best">0</div><div class="stat-label">Meilleure série</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-tools">0/3</div><div class="stat-label">Outils maîtrisés</div></div>
+  </div>
+  <div class="card">
+    <div class="section-title" style="margin-bottom:16px">Ce mois-ci</div>
+    <div class="cal-header">
+      <div class="cal-day-label">Lun</div><div class="cal-day-label">Mar</div><div class="cal-day-label">Mer</div>
+      <div class="cal-day-label">Jeu</div><div class="cal-day-label">Ven</div><div class="cal-day-label">Sam</div><div class="cal-day-label">Dim</div>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </div>
+  <div style="text-align:center;margin-top:8px">
+    <button class="check-btn" style="margin:auto" onclick="markToday()">✅ Valider la session d'aujourd'hui</button>
+  </div>
+</div>
+
+<!-- QUIZ -->
+<div class="page" id="page-quiz">
+  <div class="page-header">
+    <div class="page-title">Quiz — Méthode Losfeld</div>
+    <div class="page-sub">Teste ta compréhension théorique et pratique</div>
+  </div>
+  <div class="card">
+    <div class="quiz-prog-row">
+      <div class="prog-bar" style="flex:1"><div class="prog-fill" id="quiz-prog" style="width:0%"></div></div>
+      <div class="quiz-score">Score : <strong id="quiz-score-text">0 / 0</strong></div>
+    </div>
+    <div id="quiz-container"></div>
+  </div>
+</div>
+
+<!-- VOCAB -->
+<div class="page" id="page-vocab">
+  <div class="page-header">
+    <div class="page-title">Vocabulaire</div>
+    <div class="page-sub">Tous les termes de la méthode Losfeld</div>
+  </div>
+  <div class="vocab-grid">
+    <div class="vocab-card"><div class="vocab-term">ARD — Airroll Directionnel</div><div class="vocab-def">Technique de vol globale (pas une mécanique courte). L'équivalent du "Ollie" au skateboard.</div></div>
+    <div class="vocab-card"><div class="vocab-term">ARL / ARR</div><div class="vocab-def">Air Roll Left / Air Roll Right. Tous les exemples sont en ARL. Pour ARR, inverse gauche/droite.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Révolution neutre</div><div class="vocab-def">Moment où le capot fait face à la caméra ou au ciel. Tempo obligatoire pour tous les inputs.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Tempo</div><div class="vocab-def">Le moment de déclenchement d'un input. Toujours à la révolution neutre.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Rythme</div><div class="vocab-def">Durée de maintien de l'input. Court (pichenette), 50% (jusqu'au ventre), 100% (tour complet).</div></div>
+    <div class="vocab-card"><div class="vocab-term">Tornado Spin</div><div class="vocab-def">Input Joystick à Droite (ARL). Mouvement symétrique — la voiture vrille mais avance tout droit.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Input 100%</div><div class="vocab-def">Maintenir Haut/Bas sur 360°. Tourne la voiture MAIS ramène le nez à son inclinaison d'origine.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Horloge (ARL)</div><div class="vocab-def">Tour complet du joystick. Séquence : Droite → Bas → Gauche → Haut. Annule les directions = stabilise. Ne jamais penser horaire/anti-horaire.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Horloge inversée (ARL)</div><div class="vocab-def">Séquence : Bas → Droite → Haut → Gauche. Accentue la direction. Lente = vire. Rapide = lève/baisse le nez.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Lock & Clock</div><div class="vocab-def">Input directionnel (Haut/Bas) pour amorcer un virage, puis Horloge immédiate pour figer la trajectoire.</div></div>
+    <div class="vocab-card"><div class="vocab-term">Isolation de vecteur</div><div class="vocab-def">La vitesse d'une horloge inversée "coupe" le vecteur horizontal pour ne garder que le vertical (ou l'inverse).</div></div>
+    <div class="vocab-card"><div class="vocab-term">Reset</div><div class="vocab-def">Réinitialiser la position de la voiture en Freeplay. À faire après chaque tentative pour gagner du temps.</div></div>
+  </div>
+</div>
+
+<!-- CHEAT SHEET -->
+<div class="page" id="page-cheatsheet">
+  <div class="page-header">
+    <div class="page-title">Cheat Sheet ⚡</div>
+    <div class="page-sub">Référence complète ARL · Tous les inputs, résultats et séquences · À consulter pendant l'entraînement</div>
+  </div>
+
+  <div class="info-box blue" style="margin-bottom:20px">
+    <span class="info-box-icon">📌</span>
+    <span><strong>Règle d'or :</strong> Chaque mouvement démarre exactement à la <strong>Révolution Neutre</strong> (capot face à toi). Toujours Boost simultané.</span>
+  </div>
+
+  <div class="cs-filter" id="cs-filter">
+    <button class="cs-filter-btn active" onclick="csFilter('all',this)">Tout afficher</button>
+    <button class="cs-filter-btn" onclick="csFilter('inputs',this)">Inputs uniques</button>
+    <button class="cs-filter-btn" onclick="csFilter('horloges',this)">Horloges</button>
+    <button class="cs-filter-btn" onclick="csFilter('rapides',this)">H. Inversées rapides</button>
+    <button class="cs-filter-btn" onclick="csFilter('lentes',this)">H. Inversées lentes</button>
+    <button class="cs-filter-btn" onclick="csFilter('lockclock',this)">Lock &amp; Clock</button>
+  </div>
+
+  <!-- TABLE 1 : INPUTS UNIQUES -->
+  <div class="cs-section" id="cs-inputs">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">↔️</span>
+        <div>
+          <div class="section-title" style="margin:0">Tableau 1 — Inputs Uniques</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Pousser le joystick dans une direction · Trajectoires simples</div>
+        </div>
+      </div>
+      <table class="cs-table">
+        <thead><tr><th>Direction</th><th>Durée</th><th>Résultat</th><th>Usage</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="dir-chip">→</span> Droite</td>
+            <td>Maintenu</td>
+            <td class="result"><span class="tag-straight">Tout droit</span> — vrille sur place<span class="tag-tip">Axe symétrique, aucune roue verrouillée</span></td>
+            <td class="usage">Tornado Spin · Input de base pour avancer droit</td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">←</span> Gauche</td>
+            <td>Maintenu</td>
+            <td class="result"><span class="tag-straight">Tout droit</span> — tend à baisser le nez<span class="tag-tip">Tornado Spin inversé</span></td>
+            <td class="usage">Variation du Tornado · Attention au nez qui descend</td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↑</span> Haut</td>
+            <td>Moitié du tour (50%)</td>
+            <td class="result"><span class="tag-right">Tourne à droite</span><span class="tag-tip">Verrouille avant-droite + arrière-gauche</span></td>
+            <td class="usage">Amorce de virage à droite</td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↑</span> Haut</td>
+            <td>Tour complet (360°)</td>
+            <td class="result"><span class="tag-right">Tourne à droite</span> + redresse le nez<span class="tag-tip">Revient à l'inclinaison d'origine</span></td>
+            <td class="usage">Virage à droite sans perdre d'altitude</td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↓</span> Bas</td>
+            <td>Moitié du tour (50%)</td>
+            <td class="result"><span class="tag-left">Tourne à gauche</span><span class="tag-tip">Verrouille avant-gauche + arrière-droite</span></td>
+            <td class="usage">Amorce de virage à gauche</td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↓</span> Bas</td>
+            <td>Tour complet (360°)</td>
+            <td class="result"><span class="tag-left">Tourne à gauche</span> + redresse le nez<span class="tag-tip">Revient à l'inclinaison d'origine</span></td>
+            <td class="usage">Virage à gauche sans perdre d'altitude</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TABLE 2 : HORLOGES -->
+  <div class="cs-section" id="cs-horloges">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">🔁</span>
+        <div>
+          <div class="section-title" style="margin:0">Tableau 2 — Horloges (Stabilisation)</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Sens horaire en ARL · Les inputs s'annulent → ligne droite parfaite</div>
+        </div>
+      </div>
+      <div style="padding:10px 14px 6px;background:var(--bg3);border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:12px;color:var(--text2)">
+          Séquence ARL :
+          <span class="dir-chip">→</span><span class="arrow-right">→</span>
+          <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+          <span class="dir-chip">←</span><span class="arrow-right">→</span>
+          <span class="dir-chip">↑</span>
+          <span style="margin-left:8px;font-size:11px;color:var(--text3)">Ne jamais penser horaire/anti-horaire</span>
+        </div>
+      </div>
+      <table class="cs-table">
+        <thead><tr><th>Variante</th><th>Rythme</th><th>Résultat</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Horloge Simple</td>
+            <td>1 tour joystick = 1 révolution voiture</td>
+            <td class="result"><span class="tag-straight">Ligne droite parfaite</span><span class="tag-tip">Les micro-mouvements s'annulent. Développe le feeling du poids.</span></td>
+          </tr>
+          <tr>
+            <td>Double Horloge</td>
+            <td>2 tours joystick = 1 révolution voiture</td>
+            <td class="result"><span class="tag-straight">Ligne droite parfaite</span><span class="tag-tip">Plus facile pour débuter. Idéal pour l'échauffement et ressentir la boucle d'équilibre.</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TABLE 3 : HORLOGES INVERSÉES RAPIDES -->
+  <div class="cs-section" id="cs-rapides">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">⚡</span>
+        <div>
+          <div class="section-title" style="margin:0">Tableau 3 — Horloges Inversées RAPIDES</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Sens anti-horaire · Exécution rapide = coupe le vecteur horizontal → axe vertical uniquement</div>
+        </div>
+      </div>
+      <table class="cs-table">
+        <thead><tr><th>Départ</th><th>Séquence joystick</th><th>Amplitude</th><th>Résultat</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="dir-chip">↓</span> BAS</td>
+            <td>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span>
+            </td>
+            <td>½ horloge</td>
+            <td class="result"><span class="tag-up">Nez se lève légèrement</span><span class="tag-tip">Monte vers le plafond doucement</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↓</span> BAS</td>
+            <td>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span>
+            </td>
+            <td>¾ horloge</td>
+            <td class="result"><span class="tag-up">Nez à la verticale (90°)</span><span class="tag-tip">Idéal pour monter un mur imaginaire</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↓</span> BAS</td>
+            <td>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span>
+            </td>
+            <td>1 horloge + ¼</td>
+            <td class="result"><span class="tag-up">Demi-tour complet (180°)</span><span class="tag-tip">Freinage brutal · Nez face à toi</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↑</span> HAUT</td>
+            <td>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span>
+            </td>
+            <td>½ horloge</td>
+            <td class="result"><span class="tag-up">Nez plonge vers l'avant</span><span class="tag-tip">Repasser à l'horizontale rapidement</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↑</span> HAUT</td>
+            <td>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span>
+            </td>
+            <td>1 horloge + ¼</td>
+            <td class="result"><span class="tag-up">Demi-tour (180°) en plongeant</span><span class="tag-tip">Redémarrage vers l'avant après freinage</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TABLE 4 : HORLOGES INVERSÉES LENTES -->
+  <div class="cs-section" id="cs-lentes">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">🐢</span>
+        <div>
+          <div class="section-title" style="margin:0">Tableau 4 — Horloges Inversées LENTES</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Exécution lente = vecteur horizontal se développe → vrais virages agressifs</div>
+        </div>
+      </div>
+      <div style="padding:10px 14px 8px;background:rgba(250,204,21,.06);border-bottom:1px solid var(--border)">
+        <span style="font-size:12px;color:#fde68a">🔑 <strong>Secret :</strong> Laisser le pouce traîner un instant sur la toute première direction avant de rouler le joystick.</span>
+      </div>
+      <table class="cs-table">
+        <thead><tr><th>Départ</th><th>Séquence (anti-horaire)</th><th>Secret</th><th>Résultat</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="dir-chip">↓</span> BAS</td>
+            <td>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span>
+            </td>
+            <td style="font-size:12px">Traîner sur <strong style="color:var(--text)">↓ BAS</strong></td>
+            <td class="result"><span class="tag-left">Virage continu appuyé à GAUCHE</span><span class="tag-tip">Accentue l'input initial · Vrai virage horizontal</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↑</span> HAUT</td>
+            <td>
+              <span class="dir-chip">↑</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">→</span>
+            </td>
+            <td style="font-size:12px">Traîner sur <strong style="color:var(--text)">↑ HAUT</strong></td>
+            <td class="result"><span class="tag-right">Virage continu appuyé à DROITE</span><span class="tag-tip">Accentue l'input initial · Vrai virage horizontal</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TABLE 5 : LOCK & CLOCK -->
+  <div class="cs-section" id="cs-lockclock">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+        <span style="font-size:18px">🔒</span>
+        <div>
+          <div class="section-title" style="margin:0">Tableau 5 — Lock &amp; Clock</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">Input directionnel pour amorcer, puis Horloge classique pour figer la trajectoire</div>
+        </div>
+      </div>
+      <table class="cs-table">
+        <thead><tr><th>Départ (Lock)</th><th>Séquence complète</th><th>Résultat</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="dir-chip">↑</span> HAUT</td>
+            <td style="font-size:12px">
+              <span class="dir-chip">↑</span> <span style="color:var(--text3);font-size:11px">(verrouillage)</span>
+              <span class="arrow-right">→ enchaîne →</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span>
+            </td>
+            <td class="result"><span class="tag-right">Vire à droite</span> → fige dans ce nouvel axe<span class="tag-tip">Avance droit dans la nouvelle direction</span></td>
+          </tr>
+          <tr>
+            <td><span class="dir-chip">↓</span> BAS</td>
+            <td style="font-size:12px">
+              <span class="dir-chip">↓</span> <span style="color:var(--text3);font-size:11px">(verrouillage)</span>
+              <span class="arrow-right">→ enchaîne →</span>
+              <span class="dir-chip">→</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↓</span><span class="arrow-right">→</span>
+              <span class="dir-chip">←</span><span class="arrow-right">→</span>
+              <span class="dir-chip">↑</span>
+            </td>
+            <td class="result"><span class="tag-left">Vire à gauche</span> → fige dans ce nouvel axe<span class="tag-tip">Avance droit dans la nouvelle direction</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- GAMEPAD -->
+<div class="page" id="page-gamepad">
+  <div class="page-header">
+    <div class="page-title">Manette Live 🎮</div>
+    <div class="page-sub">Visualise le joystick gauche en temps réel · Trace ta trajectoire · Compare avec les horloges cibles</div>
+  </div>
+
+  <!-- Status bar -->
+  <div id="gp-status" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg2);margin-bottom:20px;font-size:13px">
+    <span id="gp-dot" style="width:10px;height:10px;border-radius:50%;background:var(--text3);flex-shrink:0;transition:background .3s"></span>
+    <span id="gp-msg" style="color:var(--text2)">Appuie sur un bouton de ta manette pour l'activer…</span>
+    <span id="gp-name" style="margin-left:auto;font-size:11px;color:var(--text3)"></span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+
+    <!-- Joystick pad -->
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;gap:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+        <div class="section-title" style="margin:0">Joystick gauche</div>
+        <div id="gp-axis-val" style="font-size:12px;color:var(--text2);font-family:'Space Grotesk',sans-serif"></div>
+      </div>
+      <div style="position:relative;width:220px;height:220px;flex-shrink:0">
+        <!-- Background rings -->
+        <canvas id="gp-canvas" width="220" height="220" style="position:absolute;top:0;left:0;border-radius:50%;background:var(--bg3);border:1px solid var(--border)"></canvas>
+        <!-- Overlay info -->
+        <div id="gp-zone-label" style="position:absolute;bottom:-26px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--text3);white-space:nowrap;font-family:'Space Grotesk',sans-serif"></div>
+      </div>
+      <div style="height:26px"></div><!-- spacer for label -->
+      <!-- Live axis bars -->
+      <div style="width:100%">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span style="font-size:11px;color:var(--text3);width:16px">X</span>
+          <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
+            <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border2)"></div>
+            <div id="gp-barx" style="position:absolute;height:100%;background:var(--blue);border-radius:3px;transition:all .05s;width:0%;left:50%"></div>
+          </div>
+          <span id="gp-xval" style="font-size:11px;font-family:'Space Grotesk',sans-serif;color:var(--text2);width:36px;text-align:right">0.00</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text3);width:16px">Y</span>
+          <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
+            <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border2)"></div>
+            <div id="gp-bary" style="position:absolute;height:100%;background:var(--orange);border-radius:3px;transition:all .05s;width:0%;left:50%"></div>
+          </div>
+          <span id="gp-yval" style="font-size:11px;font-family:'Space Grotesk',sans-serif;color:var(--text2);width:36px;text-align:right">0.00</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls + stats panel -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+
+      <!-- Mode selector -->
+      <div class="card" style="padding:14px 16px">
+        <div class="section-title" style="margin-bottom:10px;font-size:13px">Mode cible</div>
+        <div style="display:flex;flex-direction:column;gap:6px" id="gp-mode-btns">
+          <button class="gp-mode-btn active" data-mode="free" onclick="setMode('free',this)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);border:1px solid rgba(79,142,247,.3);background:var(--blue-bg);color:var(--blue);font-size:12px;cursor:pointer;font-family:inherit;text-align:left">
+            <span>🔓</span><span><strong>Libre</strong> — trace uniquement</span>
+          </button>
+          <button class="gp-mode-btn" data-mode="horloge" onclick="setMode('horloge',this)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:inherit;text-align:left">
+            <span>🔁</span><span><strong>Horloge</strong> — guide cercle horaire</span>
+          </button>
+          <button class="gp-mode-btn" data-mode="inv-rapide" onclick="setMode('inv-rapide',this)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:inherit;text-align:left">
+            <span>⚡</span><span><strong>Inv. Rapide</strong> — guide anti-horaire</span>
+          </button>
+          <button class="gp-mode-btn" data-mode="inv-lente" onclick="setMode('inv-lente',this)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;cursor:pointer;font-family:inherit;text-align:left">
+            <span>🐢</span><span><strong>Inv. Lente</strong> — guide anti-horaire lent</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="card" style="padding:14px 16px">
+        <div class="section-title" style="margin-bottom:10px;font-size:13px">Stats live</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px">
+            <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:var(--text)" id="gp-speed">0°/s</div>
+            <div style="font-size:11px;color:var(--text2)">Vitesse rotation</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px">
+            <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:var(--text)" id="gp-radius">0.0</div>
+            <div style="font-size:11px;color:var(--text2)">Rayon moyen</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px">
+            <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;color:var(--text)" id="gp-revs">0</div>
+            <div style="font-size:11px;color:var(--text2)">Tours complets</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius);padding:10px 12px">
+            <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif" id="gp-timing-val">—</div>
+            <div style="font-size:11px;color:var(--text2)">Timing Horloge</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div style="display:flex;gap:8px">
+        <button onclick="gpClearTrace()" style="flex:1;padding:9px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;font-size:12px;color:var(--text2);cursor:pointer;font-family:inherit">↺ Effacer trace</button>
+        <button onclick="gpTogglePause()" id="gp-pause-btn" style="flex:1;padding:9px;border-radius:var(--radius);border:1px solid var(--border);background:transparent;font-size:12px;color:var(--text2);cursor:pointer;font-family:inherit">⏸ Pause</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Timing feedback bar -->
+  <div class="card" style="padding:14px 18px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="section-title" style="margin:0;font-size:13px">Feedback de tempo</div>
+      <span style="font-size:12px;color:var(--text2)">1 tour joystick = 1 révolution voiture</span>
+    </div>
+    <div style="position:relative;height:36px;background:var(--bg3);border-radius:var(--radius);overflow:hidden">
+      <!-- Zone markers -->
+      <div style="position:absolute;left:20%;top:0;bottom:0;width:1px;background:var(--border2)"></div>
+      <div style="position:absolute;left:50%;top:0;bottom:0;width:2px;background:rgba(62,207,142,.4)"></div>
+      <div style="position:absolute;left:80%;top:0;bottom:0;width:1px;background:var(--border2)"></div>
+      <div id="gp-tempo-bar" style="position:absolute;top:4px;bottom:4px;width:12px;border-radius:6px;background:var(--blue);left:50%;margin-left:-6px;transition:left .08s ease"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text3)">
+      <span>⬅ Trop lent</span><span style="color:var(--green)">✓ Idéal</span><span>Trop rapide ➡</span>
+    </div>
+    <div id="gp-tempo-feedback" style="margin-top:8px;font-size:13px;color:var(--text2);min-height:18px;text-align:center"></div>
+  </div>
+
+  <!-- Sequence detector -->
+  <div class="card" style="padding:14px 18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div class="section-title" style="margin:0;font-size:13px">Détecteur de séquence</div>
+      <button onclick="gpResetSeq()" style="font-size:11px;color:var(--text3);border:none;background:none;cursor:pointer;font-family:inherit">↺ Reset</button>
+    </div>
+    <div id="gp-seq-display" style="display:flex;gap:6px;flex-wrap:wrap;min-height:32px;align-items:center">
+      <span style="font-size:12px;color:var(--text3)">Bouge le joystick pour détecter la direction…</span>
+    </div>
+    <div id="gp-seq-match" style="margin-top:10px;font-size:13px;min-height:20px"></div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+
+const OUTILS = [
+  {
+    num:"1", icon:"↔️", title:"Inputs Uniques — Pour tourner",
+    badge:"badge-green", badgeLabel:"Outil de base",
+    desc:"Pousser le joystick vers le Haut ou le Bas, à chaque révolution neutre, avec le Boost simultané. C'est la base de tout virage en ARD.",
+    steps:[
+      "Rythme court (pichenette) : micro-ajustement de direction, très faible déviation",
+      "Rythme moyen (50%) : maintenir jusqu'à voir le ventre de la voiture — amorce un vrai virage",
+      "Rythme long (100%) : maintenir sur 360° — tourne la voiture MAIS ramène le nez à l'inclinaison d'origine (évite la vitesse horizontale non désirée)"
+    ],
+    extra:"💡 En ARL : Haut = tourne à droite · Bas = tourne à gauche (verrouillage de roues en diagonale).",
+    checked: false
+  },
+  {
+    num:"2", icon:"🔁", title:"Horloges — Stabiliser et ressentir",
+    badge:"badge-orange", badgeLabel:"Outil intermédiaire",
+    desc:"Un tour complet (360°) du joystick. Les inputs s'annulent entre eux — la voiture va tout droit, mais tu développes un feeling du poids du véhicule.",
+    steps:[
+      "Séquence ARL obligatoire : Droite → Bas → Gauche → Haut (commence toujours par le Tornado Spin)",
+      "Ne jamais penser en 'sens horaire/anti-horaire' — pense à la séquence de directions",
+      "Objectif : 1 tour de joystick = 1 révolution de la voiture. Le pouce revient sur Droite exactement à la révolution neutre",
+      "Résultat : la voiture avance droit et tu ressens physiquement le poids et le rythme"
+    ],
+    extra:null, checked: false
+  },
+  {
+    num:"3", icon:"🔀", title:"Horloges Inversées — Virages et freinage",
+    badge:"badge-red", badgeLabel:"Outil avancé",
+    desc:"Le schéma inverse de l'horloge. N'annule pas le mouvement — l'accentue. La vitesse d'exécution isole les vecteurs et change complètement le résultat.",
+    steps:[
+      "Séquence ARL : Bas → Droite → Haut → Gauche",
+      "Exécution lente : le vecteur horizontal se développe → la voiture tourne largement à gauche ou droite",
+      "Exécution rapide : le vecteur horizontal est coupé → seul le vecteur vertical agit → lève ou baisse le nez sans dériver",
+      "3/4 d'horloge inversée = rotation à 90° · 1 horloge inversée + 1/4 = demi-tour complet (180°)"
+    ],
+    extra:"🎯 C'est la clé pour les virages serrés en Rings Map et le freinage brusque en vol.",
+    checked: false
+  }
+];
+
+const SERIES = [
+  {
+    id:"s1", num:"S1", title:"Échauffement Tempo",
+    reps:10, repsType:"fixed", continuous:false,
+    desc:"Vole à la verticale. Attends la révolution neutre. Fais un Tornado Spin (Droite) sur un tour, puis l'inverse (Gauche) au tour suivant.",
+    objectif:"Monter parfaitement droit vers le plafond. Programme le cerveau à repérer la révolution neutre.",
+    steps:[
+      "Aligne la voiture à la verticale — Freeplay, sans balle",
+      "Attends la révolution neutre (capot face à toi)",
+      "Input Droite (Tornado Spin) + Boost, maintiens 1 révolution",
+      "À la révolution neutre suivante : input Gauche + Boost",
+      "Objectif : trajectoire parfaitement verticale"
+    ]
+  },
+  {
+    id:"s2", num:"S2a", title:"Horloges Inversées Lentes — départ Bas",
+    reps:10, repsType:"fixed", continuous:false,
+    desc:"Aligne à la verticale. Fais une horloge inversée lente en partant du Bas. Laisse la voiture tourner sur le côté. Reset.",
+    objectif:"Ressentir le vecteur horizontal qui se développe avec l'exécution lente.",
+    steps:[
+      "Voiture à la verticale",
+      "Horloge inversée lente : Bas → Droite → Haut → Gauche",
+      "Observe la voiture tourner largement vers un côté",
+      "Reset, recommence"
+    ]
+  },
+  {
+    id:"s3", num:"S2b", title:"Horloges Inversées Lentes — départ Haut",
+    reps:10, repsType:"fixed", continuous:false,
+    desc:"Même exercice que S2a mais en démarrant l'horloge inversée par le Haut au lieu du Bas.",
+    objectif:"Maîtriser les deux sens de départ pour un contrôle complet.",
+    steps:[
+      "Voiture à la verticale",
+      "Horloge inversée lente : Haut → Gauche → Bas → Droite",
+      "Observe la voiture tourner de l'autre côté",
+      "Reset, recommence"
+    ]
+  },
+  {
+    id:"s4", num:"S3", title:"Contrôle de l'inclinaison (45°–90°)",
+    reps:10, repsType:"fixed", continuous:false,
+    desc:"Pars du sol à la verticale. Fais une horloge inversée rapide en partant du Bas.",
+    objectif:"Lever le nez de 45° à 90° sans jamais dériver vers la gauche ou la droite. La ligne doit être pure.",
+    steps:[
+      "Pars du sol, voiture à la verticale",
+      "Horloge inversée RAPIDE : Bas → Droite → Haut → Gauche",
+      "Le nez doit se lever de 45° à 90°",
+      "Zéro dérive latérale — la ligne doit être parfaitement propre",
+      "Reset si tu dévies"
+    ]
+  },
+  {
+    id:"s5", num:"S4", title:"Le 180° au freinage",
+    reps:10, repsType:"fixed", continuous:false,
+    desc:"Vole vers l'avant à l'horizontale. Exécute une horloge inversée rapide en partant du Bas, prolongée sur 1 tour et quart (1.25 révolutions).",
+    objectif:"Se retrouver face à la caméra, parfaitement à l'horizontale, sans avoir tourné sur les côtés.",
+    steps:[
+      "Vole vers l'avant à l'horizontale avec du boost",
+      "Horloge inversée rapide : Bas → Droite → Haut → Gauche + 1/4 de tour supplémentaire",
+      "La voiture doit faire un demi-tour et te faire face",
+      "Atterrissage horizontal, zéro dérive latérale"
+    ]
+  },
+  {
+    id:"s6", num:"S5", title:"Enchaînement Frein / Accélération",
+    reps:0, repsType:"continuous", continuous:true,
+    desc:"Vole vers l'avant. Horloge inversée par le bas pour freiner (nez face à toi), puis immédiatement horloge inversée rapide par le Haut pour relancer.",
+    objectif:"Lier Freinage et Accélération sans temps mort. Cycle fluide et continu.",
+    steps:[
+      "Vol horizontal avec boost",
+      "Horloge inversée rapide par le Bas → nez te fait face (freinage)",
+      "Immédiatement : horloge inversée rapide par le Haut → nez repart vers l'avant (accélération)",
+      "Répète sans pause : Frein → Accél → Frein → Accél"
+    ]
+  },
+  {
+    id:"s7", num:"S6", title:"Lock & Clock",
+    reps:10, repsType:"split", continuous:false,
+    desc:"À la verticale. Input directionnel Haut ou Bas pour amorcer un virage, puis Horloge classique immédiate pour figer la trajectoire.",
+    objectif:"Le pouce doit revenir sur Droite (Tornado Spin) exactement quand le capot te fait face.",
+    steps:[
+      "Voiture à la verticale",
+      "5 répétitions : input Haut + Boost → enchaîne immédiatement une Horloge (Droite → Bas → Gauche → Haut)",
+      "5 répétitions : input Bas + Boost → enchaîne immédiatement une Horloge",
+      "Le pouce doit revenir sur Droite exactement à la révolution neutre suivante"
+    ]
+  }
+];
+
+const QUESTIONS = [
+  {q:"Quelle est la séquence obligatoire d'une Horloge en ARL ?",opts:["Haut → Droite → Bas → Gauche","Droite → Bas → Gauche → Haut","Gauche → Haut → Droite → Bas","Bas → Gauche → Haut → Droite"],answer:1,hint:"Séquence ARL : Droite → Bas → Gauche → Haut. Commence toujours par le Tornado Spin (Droite). Ne jamais penser en horaire/anti-horaire."},
+  {q:"Quelle est la séquence d'une Horloge Inversée en ARL ?",opts:["Droite → Haut → Gauche → Bas","Haut → Droite → Bas → Gauche","Bas → Droite → Haut → Gauche","Gauche → Bas → Droite → Haut"],answer:2,hint:"Horloge inversée ARL : Bas → Droite → Haut → Gauche. C'est l'inverse de l'horloge classique."},
+  {q:"Que fait un input Haut à la révolution neutre en ARL ?",opts:["Tourne à gauche","Avance tout droit","Tourne à droite","Ralentit la révolution"],answer:2,hint:"En ARL, l'input Haut verrouille roue avant-droite + arrière-gauche. Avec boost : la voiture tourne à droite."},
+  {q:"Que se passe-t-il avec un input 100% (maintenu sur une révolution entière) ?",opts:["La voiture dévie horizontalement","Tourne et ramène le nez à son inclinaison d'origine","Stabilise comme une horloge","Accélère la rotation"],answer:1,hint:"L'input 100% est spécial : tourne la voiture MAIS ramène le nez à son inclinaison verticale d'origine. Idéal pour tourner sans vitesse horizontale non voulue."},
+  {q:"Quelle fraction d'horloge inversée produit un demi-tour complet (180°) ?",opts:["1/2 horloge","3/4 d'horloge","1 horloge complète","1 horloge + 1/4"],answer:3,hint:"3/4 d'horloge inversée = 90°. Pour un 180° complet : 1 horloge inversée + 1/4."},
+  {q:"Quel est l'objectif visuel de la Série 3 (Contrôle de l'inclinaison) ?",opts:["Tourner à 360° sans boost","Lever le nez de 45° à 90° sans dériver latéralement","Atterrir sur 4 roues","Maintenir une ligne horizontale"],answer:1,hint:"Série 3 : horloge inversée rapide par le Bas → lever le nez de 45° à 90°. Zéro dérive vers les côtés — la ligne doit être parfaitement propre."},
+  {q:"Dans quel ordre utilise-t-on les outils sur une Rings Map ?",opts:["Horloges → Inputs uniques → Horloges inversées","Horloges inversées → Horloges → Inputs uniques","Inputs uniques → Horloges → Horloges inversées","L'ordre n'a pas d'importance"],answer:2,hint:"Méthode Losfeld sur Rings Map : 1) Inputs uniques Haut/Bas, 2) Intégrer les Horloges pour stabiliser, 3) Intégrer les Horloges Inversées pour virages et freinage."},
+  {q:"Pourquoi faut-il toujours appuyer sur le Boost simultanément à un input ?",opts:["Pour aller plus vite","Pour ressentir concrètement la direction générée par l'input","Pour éviter de crasher","C'est optionnel"],answer:1,hint:"Le Boost révèle l'effet de l'asymétrie créée par l'input. Sans boost, tu ne ressens pas la direction générée — impossible d'apprendre par la sensation."},
+  {q:"Qu'est-ce que la Série 5 'Enchaînement Frein/Accélération' cherche à développer ?",opts:["La vitesse maximale en vol","La capacité à lier Freinage et Accélération sans temps mort","La précision des atterrissages","Le contrôle de la hauteur"],answer:1,hint:"Série 5 : horloge inversée par le Bas (frein) → immédiatement horloge inversée par le Haut (accél). Objectif : cycle fluide et continu sans pause."}
+];
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let toolsChecked = [];
+let serieReps = {};
+let days = [];
+let quizIndex = 0, quizScore = 0, quizAnswered = false;
+
+function load() {
+  try { toolsChecked = JSON.parse(localStorage.getItem('los_tools') || '[]'); } catch(e){ toolsChecked=[]; }
+  try { serieReps = JSON.parse(localStorage.getItem('los_reps') || '{}'); } catch(e){ serieReps={}; }
+  try { days = JSON.parse(localStorage.getItem('los_days') || '[]'); } catch(e){ days=[]; }
+}
+function save() {
+  try { localStorage.setItem('los_tools', JSON.stringify(toolsChecked)); } catch(e){}
+  try { localStorage.setItem('los_reps', JSON.stringify(serieReps)); } catch(e){}
+  try { localStorage.setItem('los_days', JSON.stringify(days)); } catch(e){}
+}
+
+// ─── NAVIGATION ──────────────────────────────────────────────────────────────
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if(btn) btn.classList.add('active');
+  if(name === 'suivi') { buildCalendar(); updateStats(); }
+  if(name === 'quiz' && quizIndex === 0) renderQuestion();
+  updateProgress();
+}
+
+// ─── OUTILS ──────────────────────────────────────────────────────────────────
+function toggleOutil(i) {
+  const body = document.getElementById('outil-body-' + i);
+  const chev = document.getElementById('outil-chev-' + i);
+  body.classList.toggle('open');
+  chev.classList.toggle('open');
+}
+function toggleToolCheck(i) {
+  const idx = toolsChecked.indexOf(i);
+  if(idx === -1) toolsChecked.push(i); else toolsChecked.splice(idx, 1);
+  save(); renderOutils(); updateProgress(); updateStats();
+}
+function renderOutils() {
+  const c = document.getElementById('outils-list');
+  c.innerHTML = OUTILS.map((o, i) => `
+    <div class="ex-card ${toolsChecked.includes(i)?'done':''}">
+      <div class="ex-header" onclick="toggleOutil(${i})">
+        <div class="ex-num ${toolsChecked.includes(i)?'done':''}" style="border-radius:var(--radius)">${toolsChecked.includes(i)?'✓':o.num}</div>
+        <div class="ex-info">
+          <div class="ex-title">${o.icon} ${o.title}</div>
+        </div>
+        <div class="ex-badges">
+          <span class="badge ${o.badge}">${o.badgeLabel}</span>
+          <svg class="chevron" id="outil-chev-${i}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="ex-body" id="outil-body-${i}">
+        <p class="ex-desc">${o.desc}</p>
+        <div class="steps-list">${o.steps.map((s,j)=>`<div class="step-item"><span class="step-n">${j+1}</span><span>${s}</span></div>`).join('')}</div>
+        ${o.extra ? `<div class="info-box blue" style="margin-bottom:12px"><span class="info-box-icon">💡</span><span>${o.extra}</span></div>` : ''}
+        <div class="ex-footer">
+          <button class="check-btn ${toolsChecked.includes(i)?'checked':''}" onclick="event.stopPropagation();toggleToolCheck(${i})">
+            ${toolsChecked.includes(i)?'✓ Maîtrisé':'Marquer comme maîtrisé'}
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ─── SÉRIES ──────────────────────────────────────────────────────────────────
+function getReps(id) { return serieReps[id] || 0; }
+function setReps(id, val) { serieReps[id] = Math.max(0, val); save(); renderSerie(id); renderHomeSeries(); }
+function toggleRep(id, idx, total) {
+  const cur = getReps(id);
+  serieReps[id] = (cur === idx + 1) ? idx : idx + 1;
+  save(); renderSerie(id); renderHomeSeries();
+}
+
+function toggleSerie(id) {
+  const body = document.getElementById('sb-' + id);
+  const chev = document.getElementById('sc-' + id);
+  body.classList.toggle('open');
+  chev.classList.toggle('open');
+}
+
+function renderSerie(id) {
+  const s = SERIES.find(x => x.id === id);
+  if(!s) return;
+  const cur = getReps(s.id);
+  const dotsEl = document.getElementById('dots-' + s.id);
+  const valEl = document.getElementById('rv-' + s.id);
+  if(!dotsEl || !valEl) return;
+  if(s.repsType === 'continuous') {
+    dotsEl.innerHTML = `<span style="font-size:12px;color:var(--text2)">Session en continu — pas de comptage</span>`;
+    valEl.textContent = '∞';
+  } else {
+    dotsEl.innerHTML = Array.from({length:s.reps}, (_,i) =>
+      `<div class="rep-dot ${i < cur ? 'filled' : ''}" onclick="toggleRep('${s.id}',${i},${s.reps})"></div>`
+    ).join('');
+    valEl.textContent = cur;
+  }
+}
+
+function renderSerieCard(s) {
+  const cur = getReps(s.id);
+  const pct = s.repsType === 'continuous' ? 0 : Math.round(cur/s.reps*100);
+  const done = s.repsType !== 'continuous' && cur >= s.reps;
+  return `
+    <div class="serie-card ${done?'':''}">
+      <div class="serie-header" onclick="toggleSerie('${s.id}')">
+        <div class="serie-num">${s.num}</div>
+        <div class="serie-info">
+          <div class="serie-title">${s.title}</div>
+          <div class="serie-meta">${s.repsType==='continuous'?'En continu':s.repsType==='split'?(cur+'/'+s.reps)+' reps · 5 Haut + 5 Bas':cur+'/'+s.reps+' reps'}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${done ? '<span class="badge badge-green">✓</span>' : s.repsType==='continuous' ? '<span class="badge badge-blue">Continu</span>' : ''}
+          <svg class="chevron" id="sc-${s.id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+      </div>
+      <div class="serie-body" id="sb-${s.id}">
+        <p class="serie-desc">${s.desc}</p>
+        <div class="info-box green" style="margin-bottom:12px"><span class="info-box-icon">🎯</span><span><strong>Objectif :</strong> ${s.objectif}</span></div>
+        <div class="steps-list">${s.steps.map((st,i)=>`<div class="step-item"><span class="step-n">${i+1}</span><span>${st}</span></div>`).join('')}</div>
+        ${s.repsType !== 'continuous' ? `
+        <div class="reps-row">
+          <span class="reps-label">Répétitions réussies</span>
+          <div class="reps-counter">
+            <button class="reps-btn" onclick="setReps('${s.id}',${Math.max(0,cur-1)})">−</button>
+            <span class="reps-val" id="rv-${s.id}">${cur}</span>
+            <span class="reps-target">/ ${s.reps}</span>
+            <button class="reps-btn" onclick="setReps('${s.id}',${Math.min(s.reps,cur+1)})">+</button>
+          </div>
+        </div>
+        <div class="dots-row" id="dots-${s.id}"></div>
+        <button class="reset-reps" onclick="setReps('${s.id}',0)">↺ Réinitialiser</button>
+        ` : `<div class="dots-row" id="dots-${s.id}"></div>`}
+      </div>
+    </div>`;
+}
+
+function renderSeriesPage() {
+  document.getElementById('series-list').innerHTML = SERIES.map(renderSerieCard).join('');
+  SERIES.forEach(s => renderSerie(s.id));
+}
+
+function renderHomeSeries() {
+  const c = document.getElementById('home-series-list');
+  c.innerHTML = SERIES.map(s => {
+    const cur = getReps(s.id);
+    const done = s.repsType !== 'continuous' && cur >= s.reps;
+    return `<div class="card card-sm" style="display:flex;align-items:center;gap:14px;margin-bottom:8px;cursor:pointer" onclick="showPage('programme',document.querySelectorAll('.nav-item')[3])">
+      <div class="serie-num" style="${done?'background:var(--green-bg);color:var(--green);border-color:rgba(62,207,142,.3)':''}">${done?'✓':s.num}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${s.title}</div>
+        <div style="font-size:11px;color:var(--text2)">${s.repsType==='continuous'?'Continu':cur+' / '+s.reps+' reps'}</div>
+      </div>
+      ${done?'<span class="badge badge-green">✓ Fait</span>':'<span class="badge badge-blue">→</span>'}
+    </div>`;
+  }).join('');
+}
+
+// ─── PROGRESS ────────────────────────────────────────────────────────────────
+function updateProgress() {
+  const pct = Math.round(toolsChecked.length / OUTILS.length * 100);
+  document.getElementById('prog-fill-home').style.width = pct + '%';
+  document.getElementById('prog-count-home').textContent = toolsChecked.length + ' / ' + OUTILS.length;
+}
+
+// ─── CALENDAR ────────────────────────────────────────────────────────────────
+function buildCalendar() {
+  const grid = document.getElementById('cal-grid');
+  const now = new Date();
+  const year = now.getFullYear(), month = now.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  let startDow = firstDay.getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+  let html = '';
+  for(let i = 0; i < startDow; i++) html += '<div class="cal-day empty"></div>';
+  for(let d = 1; d <= lastDay.getDate(); d++) {
+    const date = new Date(year, month, d);
+    const key = date.toDateString();
+    const isToday = key === new Date().toDateString();
+    const trained = days.includes(key);
+    html += `<div class="cal-day${trained?' trained':''}${isToday?' today':''}" onclick="toggleDay('${key}')">${d}</div>`;
+  }
+  grid.innerHTML = html;
+}
+function toggleDay(key) {
+  const idx = days.indexOf(key);
+  if(idx === -1) days.push(key); else days.splice(idx, 1);
+  save(); buildCalendar(); updateStats(); updateStreak();
+}
+function markToday() {
+  const key = new Date().toDateString();
+  if(!days.includes(key)) days.push(key);
+  save(); buildCalendar(); updateStats(); updateStreak();
+}
+function calcStreak() {
+  let streak = 0; const d = new Date();
+  while(days.includes(d.toDateString())) { streak++; d.setDate(d.getDate()-1); }
+  return streak;
+}
+function calcBest() {
+  let best = 0, cur = 0;
+  const sorted = [...days].sort();
+  sorted.forEach((key, i) => {
+    if(i === 0) { cur = 1; } else {
+      const diff = (new Date(key) - new Date(sorted[i-1])) / 86400000;
+      cur = diff === 1 ? cur + 1 : 1;
+    }
+    best = Math.max(best, cur);
+  });
+  return best;
+}
+function updateStats() {
+  document.getElementById('stat-total').textContent = days.length;
+  document.getElementById('stat-streak').textContent = calcStreak();
+  document.getElementById('stat-best').textContent = calcBest();
+  document.getElementById('stat-tools').textContent = toolsChecked.length + '/3';
+}
+function updateStreak() { document.getElementById('sb-streak').textContent = calcStreak(); }
+
+// ─── QUIZ ────────────────────────────────────────────────────────────────────
+function renderQuestion() {
+  if(quizIndex >= QUESTIONS.length) {
+    document.getElementById('quiz-container').innerHTML = `
+      <div style="text-align:center;padding:24px 0">
+        <div style="font-size:40px;margin-bottom:12px">${quizScore>=8?'🏆':quizScore>=6?'👍':'📚'}</div>
+        <div class="section-title" style="margin-bottom:8px">Score : ${quizScore} / ${QUESTIONS.length}</div>
+        <p style="color:var(--text2);font-size:13px;margin-bottom:20px">${quizScore===QUESTIONS.length?'Parfait ! Tu maîtrises la méthode Losfeld.':quizScore>=7?'Très bien ! Encore quelques révisions.':'Continue de pratiquer, ça viendra avec la mémoire musculaire !'}</p>
+        <button class="btn-primary" onclick="resetQuiz()">Recommencer</button>
+      </div>`;
+    document.getElementById('quiz-prog').style.width = '100%';
+    document.getElementById('quiz-score-text').textContent = quizScore + ' / ' + QUESTIONS.length;
+    return;
+  }
+  quizAnswered = false;
+  const q = QUESTIONS[quizIndex];
+  document.getElementById('quiz-prog').style.width = Math.round(quizIndex / QUESTIONS.length * 100) + '%';
+  document.getElementById('quiz-score-text').textContent = quizScore + ' / ' + quizIndex;
+  document.getElementById('quiz-container').innerHTML = `
+    <p class="quiz-q">${q.q}</p>
+    <div class="quiz-opts">${q.opts.map((o,i) => `<button class="quiz-opt" onclick="answerQ(${i})">${o}</button>`).join('')}</div>
+    <div class="quiz-feedback" id="qfb">${q.hint}</div>
+    <button class="quiz-next" id="qnext" onclick="nextQ()">Question suivante →</button>`;
+}
+function answerQ(i) {
+  if(quizAnswered) return; quizAnswered = true;
+  const q = QUESTIONS[quizIndex];
+  const opts = document.querySelectorAll('.quiz-opt');
+  opts.forEach(o => o.disabled = true);
+  opts[q.answer].classList.add('correct');
+  if(i !== q.answer) opts[i].classList.add('wrong'); else quizScore++;
+  document.getElementById('qfb').classList.add('show');
+  document.getElementById('qnext').classList.add('show');
+}
+function nextQ() { quizIndex++; renderQuestion(); }
+function resetQuiz() { quizIndex = 0; quizScore = 0; quizAnswered = false; renderQuestion(); }
+
+// ─── CHEAT SHEET FILTER ──────────────────────────────────────────────────────
+function csFilter(type, btn) {
+  document.querySelectorAll('.cs-filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const sections = {
+    inputs: 'cs-inputs', horloges: 'cs-horloges',
+    rapides: 'cs-rapides', lentes: 'cs-lentes', lockclock: 'cs-lockclock'
+  };
+  if(type === 'all') {
+    Object.values(sections).forEach(id => document.getElementById(id).style.display = '');
+  } else {
+    Object.entries(sections).forEach(([key, id]) => {
+      document.getElementById(id).style.display = key === type ? '' : 'none';
+    });
+  }
+}
+
+
+// ─── GAMEPAD ENGINE ──────────────────────────────────────────────────────────
+const GP = {
+  connected: false,
+  paused: false,
+  mode: 'free',
+  gpIndex: null,
+  rafId: null,
+  trace: [],         // [{x,y,angle,t}]
+  maxTrace: 300,
+  prevAngle: null,
+  totalAngle: 0,
+  revCount: 0,
+  lastAngleTime: null,
+  angularSpeeds: [],
+  seqDirs: [],
+  seqLastDir: null,
+  seqTimestamp: 0,
+  deadzone: 0.12,
+};
+
+const SEQ_PATTERNS = [
+  { name:'Horloge ARL ✓', dirs:['R','D','L','U'], color:'#3ecf8e' },
+  { name:'Horloge Inversée ARL ✓', dirs:['D','R','U','L'], color:'#f97316' },
+  { name:'Inv. Inversée (départ Haut)', dirs:['U','L','D','R'], color:'#a78bfa' },
+];
+
+function getDir(x, y) {
+  const mag = Math.sqrt(x*x + y*y);
+  if(mag < GP.deadzone) return null;
+  const angle = Math.atan2(y, x) * 180 / Math.PI;
+  if(angle >= -45 && angle < 45) return 'R';
+  if(angle >= 45 && angle < 135) return 'D';
+  if(angle >= 135 || angle < -135) return 'L';
+  return 'U';
+}
+
+function getZoneLabel(x, y) {
+  const mag = Math.sqrt(x*x + y*y);
+  if(mag < GP.deadzone) return 'Zone morte';
+  const dir = getDir(x,y);
+  const labels = { R:'→ Droite (Tornado Spin / Horloge départ)', D:'↓ Bas', L:'← Gauche (Tornado Inversé)', U:'↑ Haut' };
+  return labels[dir] || '';
+}
+
+function setMode(mode, btn) {
+  GP.mode = mode;
+  document.querySelectorAll('.gp-mode-btn').forEach(b => {
+    b.style.background = 'transparent';
+    b.style.color = 'var(--text2)';
+    b.style.borderColor = 'var(--border)';
+  });
+  btn.style.background = 'var(--blue-bg)';
+  btn.style.color = 'var(--blue)';
+  btn.style.borderColor = 'rgba(79,142,247,.3)';
+  gpClearTrace();
+}
+
+function gpClearTrace() {
+  GP.trace = [];
+  GP.totalAngle = 0;
+  GP.revCount = 0;
+  GP.prevAngle = null;
+  GP.angularSpeeds = [];
+  document.getElementById('gp-revs').textContent = '0';
+  document.getElementById('gp-speed').textContent = '0°/s';
+  document.getElementById('gp-radius').textContent = '0.0';
+  document.getElementById('gp-timing-val').textContent = '—';
+  document.getElementById('gp-timing-val').style.color = 'var(--text)';
+  document.getElementById('gp-tempo-bar').style.left = '50%';
+  document.getElementById('gp-tempo-feedback').textContent = '';
+}
+
+function gpTogglePause() {
+  GP.paused = !GP.paused;
+  document.getElementById('gp-pause-btn').textContent = GP.paused ? '▶ Reprendre' : '⏸ Pause';
+}
+
+function gpResetSeq() {
+  GP.seqDirs = [];
+  GP.seqLastDir = null;
+  renderSeqDisplay();
+}
+
+function renderSeqDisplay() {
+  const el = document.getElementById('gp-seq-display');
+  const ARROWS = { R:'→', L:'←', U:'↑', D:'↓' };
+  const COLORS = { R:'var(--blue)', L:'var(--purple)', U:'var(--green)', D:'var(--orange)' };
+  if(GP.seqDirs.length === 0) {
+    el.innerHTML = '<span style="font-size:12px;color:var(--text3)">Bouge le joystick pour détecter la direction…</span>';
+    return;
+  }
+  el.innerHTML = GP.seqDirs.map((d,i) => {
+    const isLast = i === GP.seqDirs.length - 1;
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid ${isLast ? COLORS[d] : 'var(--border2)'};background:${isLast ? `rgba(79,142,247,.1)` : 'var(--bg3)'};font-size:14px;font-weight:700;color:${COLORS[d]};font-family:'Space Grotesk',sans-serif">${ARROWS[d]}</span>`;
+  }).join('<span style="color:var(--text3);font-size:11px;margin:0 1px">›</span>');
+}
+
+function checkSeqMatch() {
+  const matchEl = document.getElementById('gp-seq-match');
+  if(GP.seqDirs.length < 4) { matchEl.innerHTML = ''; return; }
+  const last4 = GP.seqDirs.slice(-4);
+  for(const p of SEQ_PATTERNS) {
+    if(JSON.stringify(last4) === JSON.stringify(p.dirs)) {
+      matchEl.innerHTML = `<span style="color:${p.color};font-weight:600">✓ ${p.name} détectée !</span>`;
+      setTimeout(() => { matchEl.innerHTML = ''; }, 2500);
+      return;
+    }
+  }
+  matchEl.innerHTML = '';
+}
+
+function drawGamepad(x, y) {
+  const canvas = document.getElementById('gp-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = 220, H = 220, CX = 110, CY = 110, R = 95;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#1e1e28';
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.fill();
+
+  // Grid rings
+  [0.33, 0.66, 1.0].forEach(f => {
+    ctx.beginPath(); ctx.arc(CX, CY, R * f, 0, Math.PI*2);
+    ctx.strokeStyle = f === 1.0 ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.05)';
+    ctx.lineWidth = 1; ctx.stroke();
+  });
+
+  // Deadzone circle
+  ctx.beginPath(); ctx.arc(CX, CY, R * GP.deadzone, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(244,63,94,.3)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Cross hair
+  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(CX - R, CY); ctx.lineTo(CX + R, CY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CX, CY - R); ctx.lineTo(CX, CY + R); ctx.stroke();
+
+  // Draw target guide circle
+  if(GP.mode !== 'free') {
+    ctx.beginPath(); ctx.arc(CX, CY, R * 0.82, 0, Math.PI*2);
+    ctx.strokeStyle = GP.mode === 'horloge' ? 'rgba(62,207,142,.25)' : 'rgba(249,115,22,.25)';
+    ctx.lineWidth = 2; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
+
+    // Draw direction arrow for target
+    const isClockwise = GP.mode === 'horloge';
+    const arrowR = R * 0.82;
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (isClockwise ? 1.5 : -1.5) * Math.PI;
+    ctx.beginPath();
+    ctx.arc(CX, CY, arrowR, startAngle, endAngle, !isClockwise);
+    ctx.strokeStyle = GP.mode === 'horloge' ? 'rgba(62,207,142,.5)' : 'rgba(249,115,22,.5)';
+    ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Draw trace
+  if(GP.trace.length > 1) {
+    for(let i = 1; i < GP.trace.length; i++) {
+      const pt = GP.trace[i], pp = GP.trace[i-1];
+      const alpha = 0.15 + 0.7 * (i / GP.trace.length);
+      ctx.beginPath();
+      ctx.moveTo(CX + pp.x * R, CY + pp.y * R);
+      ctx.lineTo(CX + pt.x * R, CY + pt.y * R);
+      ctx.strokeStyle = `rgba(79,142,247,${alpha})`;
+      ctx.lineWidth = 1.5; ctx.stroke();
+    }
+  }
+
+  // Current dot
+  const dotX = CX + x * R, dotY = CY + y * R;
+  const mag = Math.sqrt(x*x + y*y);
+  const inDeadzone = mag < GP.deadzone;
+
+  // Glow
+  if(!inDeadzone) {
+    const grad = ctx.createRadialGradient(dotX, dotY, 0, dotX, dotY, 14);
+    grad.addColorStop(0, 'rgba(79,142,247,.35)');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(dotX, dotY, 14, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(dotX, dotY, inDeadzone ? 5 : 7, 0, Math.PI*2);
+  ctx.fillStyle = inDeadzone ? 'rgba(244,63,94,.5)' : '#4f8ef7';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Center cross
+  ctx.beginPath(); ctx.arc(CX, CY, 3, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fill();
+}
+
+function updateAxisBars(x, y) {
+  const bx = document.getElementById('gp-barx');
+  const by = document.getElementById('gp-bary');
+  if(x >= 0) { bx.style.left = '50%'; bx.style.width = (x * 50) + '%'; }
+  else { bx.style.left = (50 + x * 50) + '%'; bx.style.width = (-x * 50) + '%'; }
+  if(y >= 0) { by.style.left = '50%'; by.style.width = (y * 50) + '%'; }
+  else { by.style.left = (50 + y * 50) + '%'; by.style.width = (-y * 50) + '%'; }
+  document.getElementById('gp-xval').textContent = x.toFixed(2);
+  document.getElementById('gp-yval').textContent = y.toFixed(2);
+}
+
+function updateTempoFeedback(angSpeed) {
+  // Target: ~360°/s for a perfect clock (1 rev of stick = 1 rev of car ~1s)
+  // Range: 180 (slow) to 720 (fast), ideal 300-420
+  const bar = document.getElementById('gp-tempo-bar');
+  const fb = document.getElementById('gp-tempo-feedback');
+  const timingEl = document.getElementById('gp-timing-val');
+  if(angSpeed < 10) { bar.style.left = '50%'; fb.textContent = ''; return; }
+  const slow = 150, ideal_lo = 280, ideal_hi = 450, fast = 650;
+  let pct;
+  if(angSpeed <= ideal_lo) pct = 20 + 30 * ((angSpeed - slow) / (ideal_lo - slow));
+  else if(angSpeed <= ideal_hi) pct = 50;
+  else pct = 50 + 30 * ((angSpeed - ideal_hi) / (fast - ideal_hi));
+  pct = Math.max(5, Math.min(95, pct));
+  bar.style.left = pct + '%';
+  const speed = Math.round(angSpeed);
+  timingEl.textContent = speed + '°/s';
+  if(angSpeed < slow) { fb.textContent = '⬅ Trop lent — accélère le pouce'; fb.style.color = 'var(--red)'; timingEl.style.color = 'var(--red)'; }
+  else if(angSpeed < ideal_lo) { fb.textContent = '⬅ Un peu lent — légèrement plus rapide'; fb.style.color = 'var(--orange)'; timingEl.style.color = 'var(--orange)'; }
+  else if(angSpeed <= ideal_hi) { fb.textContent = '✓ Tempo parfait — continue comme ça'; fb.style.color = 'var(--green)'; timingEl.style.color = 'var(--green)'; }
+  else if(angSpeed < fast) { fb.textContent = '➡ Un peu rapide — ralentis légèrement'; fb.style.color = 'var(--orange)'; timingEl.style.color = 'var(--orange)'; }
+  else { fb.textContent = '➡ Trop rapide — ralentis le pouce'; fb.style.color = 'var(--red)'; timingEl.style.color = 'var(--red)'; }
+}
+
+function gpLoop() {
+  GP.rafId = requestAnimationFrame(gpLoop);
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let gp = null;
+  for(let i = 0; i < gamepads.length; i++) { if(gamepads[i]) { gp = gamepads[i]; GP.gpIndex = i; break; } }
+  if(!gp) return;
+
+  const x = gp.axes[0] || 0;
+  const y = gp.axes[1] || 0;
+  const now = Date.now();
+
+  // Update visuals
+  drawGamepad(x, y);
+  updateAxisBars(x, y);
+  document.getElementById('gp-zone-label').textContent = getZoneLabel(x, y);
+  document.getElementById('gp-axis-val').textContent = `X:${x.toFixed(2)} Y:${y.toFixed(2)}`;
+
+  if(!GP.paused) {
+    // Track trace
+    const mag = Math.sqrt(x*x + y*y);
+    if(mag > GP.deadzone) {
+      GP.trace.push({ x, y, t: now });
+      if(GP.trace.length > GP.maxTrace) GP.trace.shift();
+
+      // Angular tracking
+      const angle = Math.atan2(y, x) * 180 / Math.PI;
+      if(GP.prevAngle !== null) {
+        let delta = angle - GP.prevAngle;
+        if(delta > 180) delta -= 360;
+        if(delta < -180) delta += 360;
+        GP.totalAngle += delta;
+        const revs = Math.abs(GP.totalAngle) / 360;
+        GP.revCount = Math.floor(revs);
+        document.getElementById('gp-revs').textContent = GP.revCount;
+
+        // Angular speed
+        if(GP.lastAngleTime) {
+          const dt = (now - GP.lastAngleTime) / 1000;
+          if(dt > 0) {
+            const spd = Math.abs(delta) / dt;
+            GP.angularSpeeds.push(spd);
+            if(GP.angularSpeeds.length > 20) GP.angularSpeeds.shift();
+            const avgSpd = GP.angularSpeeds.reduce((a,b) => a+b, 0) / GP.angularSpeeds.length;
+            document.getElementById('gp-speed').textContent = Math.round(avgSpd) + '°/s';
+            if(GP.mode !== 'free') updateTempoFeedback(avgSpd);
+          }
+        }
+        GP.lastAngleTime = now;
+      }
+      GP.prevAngle = angle;
+
+      // Radius
+      if(GP.trace.length > 5) {
+        const recentMags = GP.trace.slice(-20).map(p => Math.sqrt(p.x*p.x + p.y*p.y));
+        const avgR = recentMags.reduce((a,b) => a+b, 0) / recentMags.length;
+        document.getElementById('gp-radius').textContent = avgR.toFixed(2);
+      }
+
+      // Sequence detection
+      const dir = getDir(x, y);
+      if(dir && dir !== GP.seqLastDir) {
+        GP.seqLastDir = dir;
+        GP.seqDirs.push(dir);
+        if(GP.seqDirs.length > 12) GP.seqDirs.shift();
+        renderSeqDisplay();
+        checkSeqMatch();
+      }
+    } else {
+      GP.prevAngle = null;
+      GP.lastAngleTime = null;
+      GP.angularSpeeds = [];
+    }
+  }
+}
+
+function gpSetConnected(name) {
+  GP.connected = true;
+  document.getElementById('gp-dot').style.background = 'var(--green)';
+  document.getElementById('gp-msg').textContent = 'Manette connectée — bouge le joystick gauche';
+  document.getElementById('gp-msg').style.color = 'var(--green)';
+  document.getElementById('gp-name').textContent = name.substring(0, 40);
+  if(!GP.rafId) gpLoop();
+}
+
+window.addEventListener('gamepadconnected', e => gpSetConnected(e.gamepad.id));
+window.addEventListener('gamepaddisconnected', () => {
+  GP.connected = false;
+  document.getElementById('gp-dot').style.background = 'var(--red)';
+  document.getElementById('gp-msg').textContent = 'Manette déconnectée';
+  document.getElementById('gp-msg').style.color = 'var(--red)';
+});
+
+// Auto-detect already-connected gamepad (some browsers need a button press first)
+(function checkExisting() {
+  const gps = navigator.getGamepads ? navigator.getGamepads() : [];
+  for(let i=0;i<gps.length;i++) { if(gps[i]) { gpSetConnected(gps[i].id); break; } }
+})();
+
+renderOutils();
+renderSeriesPage();
+renderHomeSeries();
+updateProgress();
+updateStreak();
+</script>
+</body>
+</html>
