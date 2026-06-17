@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Méthode Losfeld — Airroll Trainer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap');
   :root {
@@ -984,6 +985,22 @@
     <div id="gp-tempo-feedback" style="margin-top:8px;font-size:13px;color:var(--text2);min-height:18px;text-align:center"></div>
   </div>
 
+  <!-- Deadzone slider -->
+  <div class="card" style="padding:14px 18px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="section-title" style="margin:0;font-size:13px">Zone morte (Deadzone)</div>
+      <span id="dz-label" style="font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;color:var(--blue)">0.12</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:11px;color:var(--text3)">0.00</span>
+      <input type="range" min="0" max="0.5" step="0.01" value="0.12"
+        oninput="updateDeadzone(this.value)"
+        style="flex:1;accent-color:var(--blue);height:4px;cursor:pointer">
+      <span style="font-size:11px;color:var(--text3)">0.50</span>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Le tour de joystick est compté uniquement hors de cette zone — ajuste si ton stick dévie au repos</div>
+  </div>
+
   <!-- Sequence detector -->
   <div class="card" style="padding:14px 18px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -1271,7 +1288,7 @@ function renderSerieCard(s) {
         <div class="reps-row">
           <span class="reps-label">Répétitions réussies</span>
           <div class="reps-counter">
-            <button class="reps-btn" onclick="setReps('${s.id}',${Math.max(0,cur-1)})">−</button>
+            <button class="reps-btn" onclick="setReps('${s.id}',${Math.max(0,cur-1)})">-</button>
             <span class="reps-val" id="rv-${s.id}">${cur}</span>
             <span class="reps-target">/ ${s.reps}</span>
             <button class="reps-btn" onclick="setReps('${s.id}',${Math.min(s.reps,cur+1)})">+</button>
@@ -1422,72 +1439,355 @@ function csFilter(type, btn) {
 }
 
 
-// ─── GAMEPAD ENGINE ──────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// GAMEPAD ENGINE — v3 : Three.js car + Metronome + Trainer + Fixed joystick
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
 const GP = {
-  connected: false,
-  paused: false,
-  mode: 'free',
-  gpIndex: null,
-  rafId: null,
-  trace: [],         // [{x,y,angle,t}]
-  maxTrace: 300,
-  prevAngle: null,
-  totalAngle: 0,
-  revCount: 0,
-  lastAngleTime: null,
-  angularSpeeds: [],
-  seqDirs: [],
-  seqLastDir: null,
-  seqTimestamp: 0,
-  deadzone: 0.12,
+  connected:false, paused:false, mode:'free', gpIndex:null, rafId:null,
+  trace:[], maxTrace:300,
+  prevAngle:null, totalAngle:0, revCount:0, lastAngleTime:null,
+  angularSpeeds:[],
+  seqDirs:[], seqLastDir:null,
+  deadzone:0.12,
+  // Trainer
+  trainerActive:false,
+  trainerComboIdx:0,
+  scorePerfect:0, scoreOk:0, scoreMiss:0,
+  prevMag:0,   // to detect stick-exit-deadzone edge
+  lastInputTime:0,
 };
 
-const SEQ_PATTERNS = [
-  { name:'Horloge ARL ✓', dirs:['R','D','L','U'], color:'#3ecf8e' },
-  { name:'Horloge Inversée ARL ✓', dirs:['D','R','U','L'], color:'#f97316' },
-  { name:'Inv. Inversée (départ Haut)', dirs:['U','L','D','R'], color:'#a78bfa' },
+// ─── METRONOME (voiture) ─────────────────────────────────────────────────────
+// 1 révolution = 1.14 s  →  vitesse angulaire = 2π / 1.14 rad/s
+const METRO = {
+  period: 1140,    // ms pour 1 révolution complète
+  startTime: null, // performance.now() au démarrage
+  carRoll: 0,      // angle roll actuel en radians (0 = capot face caméra)
+  lastNeutralTime: null,
+};
+
+// ─── COMBOS TRAINER ──────────────────────────────────────────────────────────
+const TRAINER_COMBOS = [
+  { name:'↑ Input Haut',        desc:'Déclenche un input Haut exactement à la Révolution Neutre',       hint:'Court ou 50% du tour' },
+  { name:'↓ Input Bas',         desc:'Déclenche un input Bas exactement à la Révolution Neutre',        hint:'Court ou 50% du tour' },
+  { name:'→ Tornado Spin',      desc:'Input Droite à la Révolution Neutre — maintiens 1 révolution',    hint:'Avance tout droit' },
+  { name:'🔁 Horloge',          desc:'Démarre la séquence D→B→G→H à la Révolution Neutre',             hint:'1 tour = 1 révolution voiture' },
+  { name:'⚡ H. Inversée Rapide',desc:'Démarre la séquence B→D→H→G rapidement à la Rev. Neutre',       hint:'Lève le nez, zéro dérive' },
+  { name:'🐢 H. Inversée Lente', desc:'Séquence B→D→H→G lentement — laisse traîner sur le Bas',       hint:'Virage horizontal appuyé' },
+  { name:'🔒 Lock Haut + Clock', desc:'Input Haut (Lock) puis enchaîne immédiatement une Horloge',     hint:'Vire à droite puis stabilise' },
+  { name:'🔒 Lock Bas + Clock',  desc:'Input Bas (Lock) puis enchaîne immédiatement une Horloge',      hint:'Vire à gauche puis stabilise' },
 ];
 
+const SEQ_PATTERNS = [
+  { name:'Horloge ARL ✓',           dirs:['R','D','L','U'], color:'#3ecf8e' },
+  { name:'Horloge Inversée ARL ✓',  dirs:['D','R','U','L'], color:'#f97316' },
+  { name:'H. Inv. départ Haut ✓',   dirs:['U','L','D','R'], color:'#a78bfa' },
+];
+
+// ─── THREE.JS SCENE ──────────────────────────────────────────────────────────
+let THREE_SCENE = null;
+
+function initThree() {
+  // Safety: Three.js must be loaded
+  if(typeof THREE === 'undefined') {
+    console.warn('Three.js not loaded yet, retrying...');
+    setTimeout(initThree, 200);
+    return;
+  }
+
+  const canvas = document.getElementById('car3d-canvas');
+  if(!canvas) return;
+  const W = canvas.clientWidth || 360;
+  const H = canvas.clientHeight || 240;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  renderer.setSize(W, H, false);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x1e1e28, 1);
+
+  const scene = new THREE.Scene();
+
+  // Camera — vue légèrement de face et au-dessus
+  const camera = new THREE.PerspectiveCamera(40, W/H, 0.1, 100);
+  camera.position.set(0, 1.4, 5.5);
+  camera.lookAt(0, 0, 0);
+
+  // Lighting
+  const ambient = new THREE.AmbientLight(0xffffff, 0.45);
+  scene.add(ambient);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+  dirLight.position.set(3, 5, 4);
+  scene.add(dirLight);
+  const fillLight = new THREE.DirectionalLight(0x4f8ef7, 0.3);
+  fillLight.position.set(-3, -2, -2);
+  scene.add(fillLight);
+
+  // Groupe racine — on fera tourner le roll autour de l'axe Z
+  const carGroup = new THREE.Group();
+  scene.add(carGroup);
+
+  // ── Corps principal (parallélépipède) ──
+  const bodyGeo = new THREE.BoxGeometry(1.8, 0.55, 3.6);
+  const bodyMat = new THREE.MeshPhongMaterial({ color:0x2a2a3e, shininess:60 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  carGroup.add(body);
+
+  // ── Cabine (boîte plus petite sur le dessus) ──
+  const cabinGeo = new THREE.BoxGeometry(1.4, 0.42, 1.8);
+  const cabinMat = new THREE.MeshPhongMaterial({ color:0x1e1e2e, shininess:40 });
+  const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+  cabin.position.set(0, 0.48, 0.1);
+  carGroup.add(cabin);
+
+  // ── CAPOT (bleu) — panneau sur le dessus avant ──
+  const hoodGeo = new THREE.BoxGeometry(1.78, 0.04, 1.2);
+  const hoodMat = new THREE.MeshPhongMaterial({ color:0x4f8ef7, shininess:100, emissive:0x1a3a6f });
+  const hood = new THREE.Mesh(hoodGeo, hoodMat);
+  hood.position.set(0, 0.29, 1.0);
+  carGroup.add(hood);
+
+  // ── VENTRE (vert) — panneau sur le dessous ──
+  const bellyGeo = new THREE.BoxGeometry(1.78, 0.04, 3.58);
+  const bellyMat = new THREE.MeshPhongMaterial({ color:0x3ecf8e, shininess:80, emissive:0x0a3020 });
+  const belly = new THREE.Mesh(bellyGeo, bellyMat);
+  belly.position.set(0, -0.29, 0);
+  carGroup.add(belly);
+
+  // ── AVANT (rouge) — face avant ──
+  const frontGeo = new THREE.BoxGeometry(1.78, 0.53, 0.04);
+  const frontMat = new THREE.MeshPhongMaterial({ color:0xf43f5e, shininess:100, emissive:0x4a0010 });
+  const front = new THREE.Mesh(frontGeo, frontMat);
+  front.position.set(0, 0, 1.82);
+  carGroup.add(front);
+
+  // ── Roues (4 cylindres) ──
+  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.18, 24);
+  const wheelMat = new THREE.MeshPhongMaterial({ color:0x111118, shininess:20 });
+  const wheelPositions = [[-1.02,-0.24,1.1],[1.02,-0.24,1.1],[-1.02,-0.24,-1.1],[1.02,-0.24,-1.1]];
+  wheelPositions.forEach(([wx,wy,wz]) => {
+    const w = new THREE.Mesh(wheelGeo, wheelMat);
+    w.rotation.z = Math.PI/2;
+    w.position.set(wx, wy, wz);
+    carGroup.add(w);
+  });
+
+  // ── Indicateur de direction NEUTRE (anneau fin autour de la voiture) ──
+  const ringGeo = new THREE.TorusGeometry(1.3, 0.025, 8, 48);
+  const ringMat = new THREE.MeshBasicMaterial({ color:0x3ecf8e, transparent:true, opacity:0 });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.y = Math.PI/2;
+  scene.add(ring); // hors carGroup — reste fixe autour
+
+  // ── Grid de référence au sol ──
+  const gridHelper = new THREE.GridHelper(8, 8, 0x2a2a3e, 0x1e1e28);
+  gridHelper.position.y = -1.2;
+  scene.add(gridHelper);
+
+  THREE_SCENE = { renderer, scene, camera, carGroup, ring, ringMat };
+  METRO.startTime = performance.now();
+
+  // Handle resize
+  const obs = new ResizeObserver(() => {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    renderer.setSize(cw, ch, false);
+    camera.aspect = cw/ch;
+    camera.updateProjectionMatrix();
+  });
+  obs.observe(canvas);
+
+  animateCar();
+}
+
+function animateCar() {
+  requestAnimationFrame(animateCar);
+  if(!THREE_SCENE) return;
+
+  const now = performance.now();
+  const elapsed = now - METRO.startTime;
+
+  // Roll continu : 2π radians en METRO.period ms
+  METRO.carRoll = (elapsed / METRO.period) * Math.PI * 2;
+  THREE_SCENE.carGroup.rotation.z = METRO.carRoll;
+
+  // Détection révolution neutre : capot face caméra = roll ≡ 0 mod 2π
+  // On normalise entre 0 et 2π
+  const rollNorm = ((METRO.carRoll % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+  // Fenêtre de ±0.15 rad (≈ 8.5°) autour de 0/2π
+  const neutralWindow = 0.18;
+  const isNeutral = rollNorm < neutralWindow || rollNorm > (Math.PI*2 - neutralWindow);
+
+  if(isNeutral) {
+    if(!METRO._wasNeutral) {
+      METRO._wasNeutral = true;
+      METRO.lastNeutralTime = now;
+      onNeutralRevolution(now);
+    }
+  } else {
+    METRO._wasNeutral = false;
+  }
+
+  // Flash visuel anneau
+  const flashIntensity = isNeutral ? Math.max(0, 1 - (rollNorm < neutralWindow ? rollNorm : Math.PI*2 - rollNorm) / neutralWindow) : 0;
+  THREE_SCENE.ringMat.opacity = flashIntensity * 0.7;
+  THREE_SCENE.ring.scale.setScalar(1 + flashIntensity * 0.08);
+
+  // Affichage angle en degrés
+  const deg = Math.round((rollNorm * 180 / Math.PI + 360) % 360);
+  const angleEl = document.getElementById('car-angle-display');
+  if(angleEl) angleEl.textContent = deg + '°';
+
+  // Flash overlay HTML
+  const flashEl = document.getElementById('neutral-flash');
+  const labelEl = document.getElementById('neutral-label');
+  if(flashEl) flashEl.style.background = `rgba(62,207,142,${flashIntensity * 0.08})`;
+  if(labelEl) labelEl.style.opacity = flashIntensity > 0.5 ? '1' : '0';
+
+  THREE_SCENE.renderer.render(THREE_SCENE.scene, THREE_SCENE.camera);
+}
+
+// ─── NEUTRAL REVOLUTION EVENT ─────────────────────────────────────────────────
+function onNeutralRevolution(now) {
+  // Flash badge
+  const badge = document.getElementById('rev-badge');
+  if(badge) {
+    badge.style.background = 'var(--green-bg)';
+    badge.style.color = 'var(--green)';
+    badge.style.borderColor = 'rgba(62,207,142,.3)';
+    badge.textContent = '🟢 NEUTRE';
+    setTimeout(() => {
+      badge.style.background = 'var(--bg3)';
+      badge.style.color = 'var(--text3)';
+      badge.style.borderColor = 'var(--border)';
+      badge.textContent = '⏳ 1.14s / tour';
+    }, 300);
+  }
+
+  // Si trainer actif : évaluer l'input qui vient d'arriver (si le joueur a bougé)
+  if(GP.trainerActive && GP.lastInputTime > 0) {
+    const delta = Math.abs(now - GP.lastInputTime);
+    if(delta < 700) { // fenêtre valide = 700ms max
+      scoreTiming(delta);
+      GP.lastInputTime = 0; // consommé
+    }
+  }
+}
+
+// ─── TRAINER ─────────────────────────────────────────────────────────────────
+function trainerToggle() {
+  GP.trainerActive = !GP.trainerActive;
+  const btn = document.getElementById('trainer-start-btn');
+  if(GP.trainerActive) {
+    btn.textContent = '⏹ Arrêter';
+    btn.style.background = 'var(--red-bg)';
+    btn.style.color = 'var(--red)';
+    btn.style.borderColor = 'rgba(244,63,94,.3)';
+    trainerShowCombo();
+  } else {
+    btn.textContent = '▶ Démarrer';
+    btn.style.background = 'var(--blue-bg)';
+    btn.style.color = 'var(--blue)';
+    btn.style.borderColor = 'rgba(79,142,247,.3)';
+    document.getElementById('trainer-emoji').textContent = '⏳';
+    document.getElementById('trainer-verdict').textContent = 'En attente…';
+    document.getElementById('trainer-verdict').style.color = 'var(--text2)';
+  }
+}
+
+function trainerShowCombo() {
+  const c = TRAINER_COMBOS[GP.trainerComboIdx];
+  document.getElementById('trainer-combo-name').textContent = c.name;
+  document.getElementById('trainer-combo-desc').textContent = c.desc;
+  document.getElementById('trainer-delta-label').textContent = c.hint;
+}
+
+function trainerNext() {
+  GP.trainerComboIdx = (GP.trainerComboIdx + 1) % TRAINER_COMBOS.length;
+  trainerShowCombo();
+  document.getElementById('trainer-emoji').textContent = '⏳';
+  document.getElementById('trainer-verdict').textContent = 'Attends la Révolution Neutre…';
+  document.getElementById('trainer-verdict').style.color = 'var(--text2)';
+  document.getElementById('trainer-delta-label').textContent = '—';
+  document.getElementById('trainer-precision-marker').style.left = '50%';
+}
+
+function trainerReset() {
+  GP.scorePerfect = 0; GP.scoreOk = 0; GP.scoreMiss = 0; GP.lastInputTime = 0;
+  document.getElementById('score-perfect').textContent = '0';
+  document.getElementById('score-ok').textContent = '0';
+  document.getElementById('score-miss').textContent = '0';
+  document.getElementById('trainer-emoji').textContent = '⏳';
+  document.getElementById('trainer-verdict').textContent = 'En attente…';
+  document.getElementById('trainer-verdict').style.color = 'var(--text2)';
+  document.getElementById('trainer-delta-label').textContent = '—';
+  document.getElementById('trainer-precision-marker').style.left = '50%';
+}
+
+function scoreTiming(deltaMs) {
+  // 0ms = parfait, 50ms = limite parfait, 150ms = limite moyen, >150ms = raté
+  // Marker position : 50% = parfait, 0% ou 100% = raté
+  const maxMs = 500;
+  const pct = Math.min(100, (deltaMs / maxMs) * 100);
+  // Centré sur 50% : proche de 50 = bon, éloigné = mauvais
+  const markerPct = 50 - pct * 0.5; // approx
+  document.getElementById('trainer-precision-marker').style.left = Math.max(2, Math.min(96, 50 - pct * 0.45)) + '%';
+  document.getElementById('trainer-delta-label').textContent = `Écart : ${Math.round(deltaMs)} ms de la Révolution Neutre`;
+
+  if(deltaMs <= 50) {
+    GP.scorePerfect++;
+    document.getElementById('score-perfect').textContent = GP.scorePerfect;
+    document.getElementById('trainer-emoji').textContent = '🟢';
+    document.getElementById('trainer-verdict').textContent = 'PARFAIT ! Tempo idéal';
+    document.getElementById('trainer-verdict').style.color = 'var(--green)';
+    document.getElementById('trainer-precision-marker').style.left = '50%';
+  } else if(deltaMs <= 150) {
+    GP.scoreOk++;
+    document.getElementById('score-ok').textContent = GP.scoreOk;
+    document.getElementById('trainer-emoji').textContent = '🟠';
+    document.getElementById('trainer-verdict').textContent = 'MOYEN — Rapproche-toi du Neutre';
+    document.getElementById('trainer-verdict').style.color = 'var(--orange)';
+  } else {
+    GP.scoreMiss++;
+    document.getElementById('score-miss').textContent = GP.scoreMiss;
+    document.getElementById('trainer-emoji').textContent = '🔴';
+    document.getElementById('trainer-verdict').textContent = 'RATÉ — Attends le capot face à toi';
+    document.getElementById('trainer-verdict').style.color = 'var(--red)';
+  }
+}
+
+// ─── JOYSTICK 2D ─────────────────────────────────────────────────────────────
 function getDir(x, y) {
   const mag = Math.sqrt(x*x + y*y);
   if(mag < GP.deadzone) return null;
   const angle = Math.atan2(y, x) * 180 / Math.PI;
-  if(angle >= -45 && angle < 45) return 'R';
-  if(angle >= 45 && angle < 135) return 'D';
+  if(angle >= -45 && angle < 45)   return 'R';
+  if(angle >= 45  && angle < 135)  return 'D';
   if(angle >= 135 || angle < -135) return 'L';
   return 'U';
 }
 
 function getZoneLabel(x, y) {
   const mag = Math.sqrt(x*x + y*y);
-  if(mag < GP.deadzone) return 'Zone morte';
-  const dir = getDir(x,y);
-  const labels = { R:'→ Droite (Tornado Spin / Horloge départ)', D:'↓ Bas', L:'← Gauche (Tornado Inversé)', U:'↑ Haut' };
-  return labels[dir] || '';
+  if(mag < GP.deadzone) return '⬤ Zone morte';
+  const labels = { R:'→ Droite (Tornado Spin)', D:'↓ Bas', L:'← Gauche (Tornado Inv.)', U:'↑ Haut' };
+  return labels[getDir(x,y)] || '';
 }
 
 function setMode(mode, btn) {
   GP.mode = mode;
   document.querySelectorAll('.gp-mode-btn').forEach(b => {
-    b.style.background = 'transparent';
-    b.style.color = 'var(--text2)';
-    b.style.borderColor = 'var(--border)';
+    b.style.background='transparent'; b.style.color='var(--text2)'; b.style.borderColor='var(--border)';
   });
-  btn.style.background = 'var(--blue-bg)';
-  btn.style.color = 'var(--blue)';
-  btn.style.borderColor = 'rgba(79,142,247,.3)';
+  btn.style.background='var(--blue-bg)'; btn.style.color='var(--blue)'; btn.style.borderColor='rgba(79,142,247,.3)';
   gpClearTrace();
 }
 
 function gpClearTrace() {
-  GP.trace = [];
-  GP.totalAngle = 0;
-  GP.revCount = 0;
-  GP.prevAngle = null;
-  GP.angularSpeeds = [];
-  document.getElementById('gp-revs').textContent = '0';
-  document.getElementById('gp-speed').textContent = '0°/s';
-  document.getElementById('gp-radius').textContent = '0.0';
+  GP.trace=[]; GP.totalAngle=0; GP.revCount=0; GP.prevAngle=null; GP.angularSpeeds=[];
+  ['gp-revs','gp-speed','gp-radius'].forEach((id,i) => {
+    document.getElementById(id).textContent = ['0','0°/s','0.0'][i];
+  });
   document.getElementById('gp-timing-val').textContent = '—';
   document.getElementById('gp-timing-val').style.color = 'var(--text)';
   document.getElementById('gp-tempo-bar').style.left = '50%';
@@ -1500,248 +1800,271 @@ function gpTogglePause() {
 }
 
 function gpResetSeq() {
-  GP.seqDirs = [];
-  GP.seqLastDir = null;
-  renderSeqDisplay();
+  GP.seqDirs=[]; GP.seqLastDir=null; renderSeqDisplay();
 }
 
 function renderSeqDisplay() {
   const el = document.getElementById('gp-seq-display');
-  const ARROWS = { R:'→', L:'←', U:'↑', D:'↓' };
-  const COLORS = { R:'var(--blue)', L:'var(--purple)', U:'var(--green)', D:'var(--orange)' };
-  if(GP.seqDirs.length === 0) {
-    el.innerHTML = '<span style="font-size:12px;color:var(--text3)">Bouge le joystick pour détecter la direction…</span>';
+  const ARROWS={R:'→',L:'←',U:'↑',D:'↓'};
+  const COLORS={R:'var(--blue)',L:'var(--purple)',U:'var(--green)',D:'var(--orange)'};
+  if(!GP.seqDirs.length){
+    el.innerHTML='<span style="font-size:12px;color:var(--text3)">Bouge le joystick pour détecter la direction…</span>';
     return;
   }
   el.innerHTML = GP.seqDirs.map((d,i) => {
-    const isLast = i === GP.seqDirs.length - 1;
-    return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid ${isLast ? COLORS[d] : 'var(--border2)'};background:${isLast ? `rgba(79,142,247,.1)` : 'var(--bg3)'};font-size:14px;font-weight:700;color:${COLORS[d]};font-family:'Space Grotesk',sans-serif">${ARROWS[d]}</span>`;
+    const last = i===GP.seqDirs.length-1;
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:7px;border:1px solid ${last?COLORS[d]:'var(--border2)'};background:${last?'rgba(79,142,247,.1)':'var(--bg3)'};font-size:14px;font-weight:700;color:${COLORS[d]};font-family:'Space Grotesk',sans-serif">${ARROWS[d]}</span>`;
   }).join('<span style="color:var(--text3);font-size:11px;margin:0 1px">›</span>');
 }
 
 function checkSeqMatch() {
-  const matchEl = document.getElementById('gp-seq-match');
-  if(GP.seqDirs.length < 4) { matchEl.innerHTML = ''; return; }
+  const el = document.getElementById('gp-seq-match');
+  if(GP.seqDirs.length<4){el.innerHTML='';return;}
   const last4 = GP.seqDirs.slice(-4);
-  for(const p of SEQ_PATTERNS) {
-    if(JSON.stringify(last4) === JSON.stringify(p.dirs)) {
-      matchEl.innerHTML = `<span style="color:${p.color};font-weight:600">✓ ${p.name} détectée !</span>`;
-      setTimeout(() => { matchEl.innerHTML = ''; }, 2500);
-      return;
+  for(const p of SEQ_PATTERNS){
+    if(JSON.stringify(last4)===JSON.stringify(p.dirs)){
+      el.innerHTML=`<span style="color:${p.color};font-weight:600">✓ ${p.name} détectée !</span>`;
+      setTimeout(()=>{el.innerHTML='';},2500); return;
     }
   }
-  matchEl.innerHTML = '';
+  el.innerHTML='';
 }
 
+// Joystick canvas — cercle parfait, taille fixe, clip circulaire
 function drawGamepad(x, y) {
   const canvas = document.getElementById('gp-canvas');
+  if(!canvas) return;
   const ctx = canvas.getContext('2d');
-  const W = 220, H = 220, CX = 110, CY = 110, R = 95;
-  ctx.clearRect(0, 0, W, H);
+  // Utilise la taille interne du canvas (attributs width/height)
+  const S = Math.min(canvas.width, canvas.height);
+  const CX = canvas.width/2, CY = canvas.height/2;
+  const R = (S/2) - 4; // 4px de marge pour que le bord ne soit pas coupé
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Background
-  ctx.fillStyle = '#1e1e28';
-  ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.fill();
+  // Clip circulaire — tout reste dans le cercle
+  ctx.save();
+  ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.clip();
 
-  // Grid rings
-  [0.33, 0.66, 1.0].forEach(f => {
-    ctx.beginPath(); ctx.arc(CX, CY, R * f, 0, Math.PI*2);
-    ctx.strokeStyle = f === 1.0 ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.05)';
-    ctx.lineWidth = 1; ctx.stroke();
+  // Fond
+  ctx.fillStyle='#1e1e28';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Rings de référence
+  [0.33,0.66,1.0].forEach(f=>{
+    ctx.beginPath(); ctx.arc(CX,CY,R*f,0,Math.PI*2);
+    ctx.strokeStyle = f===1.0?'rgba(255,255,255,.12)':'rgba(255,255,255,.05)';
+    ctx.lineWidth=1; ctx.stroke();
   });
 
-  // Deadzone circle
-  ctx.beginPath(); ctx.arc(CX, CY, R * GP.deadzone, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(244,63,94,.3)'; ctx.lineWidth = 1; ctx.stroke();
+  // Deadzone
+  ctx.beginPath(); ctx.arc(CX,CY,R*GP.deadzone,0,Math.PI*2);
+  ctx.strokeStyle='rgba(244,63,94,.4)'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='rgba(244,63,94,.06)'; ctx.fill();
 
-  // Cross hair
-  ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(CX - R, CY); ctx.lineTo(CX + R, CY); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(CX, CY - R); ctx.lineTo(CX, CY + R); ctx.stroke();
+  // Croix
+  ctx.strokeStyle='rgba(255,255,255,.07)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(CX-R,CY); ctx.lineTo(CX+R,CY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(CX,CY-R); ctx.lineTo(CX,CY+R); ctx.stroke();
 
-  // Draw target guide circle
-  if(GP.mode !== 'free') {
-    ctx.beginPath(); ctx.arc(CX, CY, R * 0.82, 0, Math.PI*2);
-    ctx.strokeStyle = GP.mode === 'horloge' ? 'rgba(62,207,142,.25)' : 'rgba(249,115,22,.25)';
-    ctx.lineWidth = 2; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
+  // Guide cible
+  if(GP.mode!=='free'){
+    const guideR = R*0.82;
+    ctx.beginPath(); ctx.arc(CX,CY,guideR,0,Math.PI*2);
+    ctx.strokeStyle = GP.mode==='horloge'?'rgba(62,207,142,.3)':'rgba(249,115,22,.3)';
+    ctx.lineWidth=2; ctx.setLineDash([5,5]); ctx.stroke(); ctx.setLineDash([]);
 
-    // Draw direction arrow for target
-    const isClockwise = GP.mode === 'horloge';
-    const arrowR = R * 0.82;
-    const startAngle = -Math.PI / 2;
-    const endAngle = startAngle + (isClockwise ? 1.5 : -1.5) * Math.PI;
+    const cw = GP.mode==='horloge';
     ctx.beginPath();
-    ctx.arc(CX, CY, arrowR, startAngle, endAngle, !isClockwise);
-    ctx.strokeStyle = GP.mode === 'horloge' ? 'rgba(62,207,142,.5)' : 'rgba(249,115,22,.5)';
-    ctx.lineWidth = 2; ctx.stroke();
+    ctx.arc(CX,CY,guideR,-Math.PI/2,-Math.PI/2+(cw?1.5:-1.5)*Math.PI,!cw);
+    ctx.strokeStyle = GP.mode==='horloge'?'rgba(62,207,142,.6)':'rgba(249,115,22,.6)';
+    ctx.lineWidth=2; ctx.stroke();
   }
 
-  // Draw trace
-  if(GP.trace.length > 1) {
-    for(let i = 1; i < GP.trace.length; i++) {
-      const pt = GP.trace[i], pp = GP.trace[i-1];
-      const alpha = 0.15 + 0.7 * (i / GP.trace.length);
-      ctx.beginPath();
-      ctx.moveTo(CX + pp.x * R, CY + pp.y * R);
-      ctx.lineTo(CX + pt.x * R, CY + pt.y * R);
-      ctx.strokeStyle = `rgba(79,142,247,${alpha})`;
-      ctx.lineWidth = 1.5; ctx.stroke();
-    }
+  // Trace
+  for(let i=1;i<GP.trace.length;i++){
+    const pt=GP.trace[i], pp=GP.trace[i-1];
+    const alpha=0.1+0.8*(i/GP.trace.length);
+    ctx.beginPath();
+    ctx.moveTo(CX+pp.x*R, CY+pp.y*R);
+    ctx.lineTo(CX+pt.x*R, CY+pt.y*R);
+    ctx.strokeStyle=`rgba(79,142,247,${alpha})`;
+    ctx.lineWidth=1.5; ctx.stroke();
   }
 
-  // Current dot
-  const dotX = CX + x * R, dotY = CY + y * R;
-  const mag = Math.sqrt(x*x + y*y);
-  const inDeadzone = mag < GP.deadzone;
+  ctx.restore(); // fin clip
 
-  // Glow
-  if(!inDeadzone) {
-    const grad = ctx.createRadialGradient(dotX, dotY, 0, dotX, dotY, 14);
-    grad.addColorStop(0, 'rgba(79,142,247,.35)');
-    grad.addColorStop(1, 'transparent');
-    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(dotX, dotY, 14, 0, Math.PI*2); ctx.fill();
+  // Bord extérieur du cercle
+  ctx.beginPath(); ctx.arc(CX,CY,R,0,Math.PI*2);
+  ctx.strokeStyle='rgba(255,255,255,.1)'; ctx.lineWidth=1.5; ctx.stroke();
+
+  // Dot courant
+  const mag=Math.sqrt(x*x+y*y);
+  const inDZ=mag<GP.deadzone;
+  const dotX=CX+x*R, dotY=CY+y*R;
+  if(!inDZ){
+    const g=ctx.createRadialGradient(dotX,dotY,0,dotX,dotY,14);
+    g.addColorStop(0,'rgba(79,142,247,.4)'); g.addColorStop(1,'transparent');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(dotX,dotY,14,0,Math.PI*2); ctx.fill();
   }
-  ctx.beginPath(); ctx.arc(dotX, dotY, inDeadzone ? 5 : 7, 0, Math.PI*2);
-  ctx.fillStyle = inDeadzone ? 'rgba(244,63,94,.5)' : '#4f8ef7';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(dotX,dotY,inDZ?4:7,0,Math.PI*2);
+  ctx.fillStyle=inDZ?'rgba(244,63,94,.6)':'#4f8ef7'; ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=1; ctx.stroke();
 
-  // Center cross
-  ctx.beginPath(); ctx.arc(CX, CY, 3, 0, Math.PI*2);
-  ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fill();
+  // Centre
+  ctx.beginPath(); ctx.arc(CX,CY,3,0,Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,.25)'; ctx.fill();
 }
 
-function updateAxisBars(x, y) {
-  const bx = document.getElementById('gp-barx');
-  const by = document.getElementById('gp-bary');
-  if(x >= 0) { bx.style.left = '50%'; bx.style.width = (x * 50) + '%'; }
-  else { bx.style.left = (50 + x * 50) + '%'; bx.style.width = (-x * 50) + '%'; }
-  if(y >= 0) { by.style.left = '50%'; by.style.width = (y * 50) + '%'; }
-  else { by.style.left = (50 + y * 50) + '%'; by.style.width = (-y * 50) + '%'; }
-  document.getElementById('gp-xval').textContent = x.toFixed(2);
-  document.getElementById('gp-yval').textContent = y.toFixed(2);
+function updateAxisBars(x,y){
+  const bx=document.getElementById('gp-barx'), by=document.getElementById('gp-bary');
+  if(!bx||!by) return;
+  if(x>=0){bx.style.left='50%';bx.style.width=(x*50)+'%';}
+  else{bx.style.left=(50+x*50)+'%';bx.style.width=(-x*50)+'%';}
+  if(y>=0){by.style.left='50%';by.style.width=(y*50)+'%';}
+  else{by.style.left=(50+y*50)+'%';by.style.width=(-y*50)+'%';}
+  document.getElementById('gp-xval').textContent=x.toFixed(2);
+  document.getElementById('gp-yval').textContent=y.toFixed(2);
 }
 
-function updateTempoFeedback(angSpeed) {
-  // Target: ~360°/s for a perfect clock (1 rev of stick = 1 rev of car ~1s)
-  // Range: 180 (slow) to 720 (fast), ideal 300-420
-  const bar = document.getElementById('gp-tempo-bar');
-  const fb = document.getElementById('gp-tempo-feedback');
-  const timingEl = document.getElementById('gp-timing-val');
-  if(angSpeed < 10) { bar.style.left = '50%'; fb.textContent = ''; return; }
-  const slow = 150, ideal_lo = 280, ideal_hi = 450, fast = 650;
+function updateTempoFeedback(angSpeed){
+  const bar=document.getElementById('gp-tempo-bar');
+  const fb=document.getElementById('gp-tempo-feedback');
+  const tv=document.getElementById('gp-timing-val');
+  if(!bar||angSpeed<10){if(bar)bar.style.left='50%';return;}
+  const slow=150,lo=280,hi=450,fast=650;
   let pct;
-  if(angSpeed <= ideal_lo) pct = 20 + 30 * ((angSpeed - slow) / (ideal_lo - slow));
-  else if(angSpeed <= ideal_hi) pct = 50;
-  else pct = 50 + 30 * ((angSpeed - ideal_hi) / (fast - ideal_hi));
-  pct = Math.max(5, Math.min(95, pct));
-  bar.style.left = pct + '%';
-  const speed = Math.round(angSpeed);
-  timingEl.textContent = speed + '°/s';
-  if(angSpeed < slow) { fb.textContent = '⬅ Trop lent — accélère le pouce'; fb.style.color = 'var(--red)'; timingEl.style.color = 'var(--red)'; }
-  else if(angSpeed < ideal_lo) { fb.textContent = '⬅ Un peu lent — légèrement plus rapide'; fb.style.color = 'var(--orange)'; timingEl.style.color = 'var(--orange)'; }
-  else if(angSpeed <= ideal_hi) { fb.textContent = '✓ Tempo parfait — continue comme ça'; fb.style.color = 'var(--green)'; timingEl.style.color = 'var(--green)'; }
-  else if(angSpeed < fast) { fb.textContent = '➡ Un peu rapide — ralentis légèrement'; fb.style.color = 'var(--orange)'; timingEl.style.color = 'var(--orange)'; }
-  else { fb.textContent = '➡ Trop rapide — ralentis le pouce'; fb.style.color = 'var(--red)'; timingEl.style.color = 'var(--red)'; }
+  if(angSpeed<=lo) pct=20+30*((angSpeed-slow)/(lo-slow));
+  else if(angSpeed<=hi) pct=50;
+  else pct=50+30*((angSpeed-hi)/(fast-hi));
+  pct=Math.max(5,Math.min(95,pct));
+  bar.style.left=pct+'%';
+  const spd=Math.round(angSpeed);
+  tv.textContent=spd+'°/s';
+  if(angSpeed<slow){fb.textContent='⬅ Trop lent';fb.style.color=tv.style.color='var(--red)';}
+  else if(angSpeed<lo){fb.textContent='⬅ Un peu lent';fb.style.color=tv.style.color='var(--orange)';}
+  else if(angSpeed<=hi){fb.textContent='✓ Tempo parfait';fb.style.color=tv.style.color='var(--green)';}
+  else if(angSpeed<fast){fb.textContent='➡ Un peu rapide';fb.style.color=tv.style.color='var(--orange)';}
+  else{fb.textContent='➡ Trop rapide';fb.style.color=tv.style.color='var(--red)';}
 }
 
-function gpLoop() {
-  GP.rafId = requestAnimationFrame(gpLoop);
-  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  let gp = null;
-  for(let i = 0; i < gamepads.length; i++) { if(gamepads[i]) { gp = gamepads[i]; GP.gpIndex = i; break; } }
+// ─── MAIN GAMEPAD LOOP ───────────────────────────────────────────────────────
+function gpLoop(){
+  GP.rafId=requestAnimationFrame(gpLoop);
+  const gamepads=navigator.getGamepads?navigator.getGamepads():[];
+  let gp=null;
+  for(let i=0;i<gamepads.length;i++){if(gamepads[i]){gp=gamepads[i];GP.gpIndex=i;break;}}
   if(!gp) return;
 
-  const x = gp.axes[0] || 0;
-  const y = gp.axes[1] || 0;
-  const now = Date.now();
+  const x=gp.axes[0]||0, y=gp.axes[1]||0;
+  const now=Date.now();
+  const mag=Math.sqrt(x*x+y*y);
 
-  // Update visuals
-  drawGamepad(x, y);
-  updateAxisBars(x, y);
-  document.getElementById('gp-zone-label').textContent = getZoneLabel(x, y);
-  document.getElementById('gp-axis-val').textContent = `X:${x.toFixed(2)} Y:${y.toFixed(2)}`;
+  // Dessiner joystick
+  drawGamepad(x,y);
+  updateAxisBars(x,y);
+  const zl=document.getElementById('gp-zone-label');
+  const av=document.getElementById('gp-axis-val');
+  if(zl) zl.textContent=getZoneLabel(x,y);
+  if(av) av.textContent=`X:${x.toFixed(2)} Y:${y.toFixed(2)}`;
 
-  if(!GP.paused) {
-    // Track trace
-    const mag = Math.sqrt(x*x + y*y);
-    if(mag > GP.deadzone) {
-      GP.trace.push({ x, y, t: now });
-      if(GP.trace.length > GP.maxTrace) GP.trace.shift();
+  // Détecter sortie de zone morte → input du joueur
+  if(GP.trainerActive && GP.prevMag<GP.deadzone && mag>=GP.deadzone){
+    GP.lastInputTime=performance.now(); // timestamp précis pour comparaison avec métronome
+  }
+  GP.prevMag=mag;
 
-      // Angular tracking
-      const angle = Math.atan2(y, x) * 180 / Math.PI;
-      if(GP.prevAngle !== null) {
-        let delta = angle - GP.prevAngle;
-        if(delta > 180) delta -= 360;
-        if(delta < -180) delta += 360;
-        GP.totalAngle += delta;
-        const revs = Math.abs(GP.totalAngle) / 360;
-        GP.revCount = Math.floor(revs);
-        document.getElementById('gp-revs').textContent = GP.revCount;
+  if(!GP.paused){
+    if(mag>GP.deadzone){
+      GP.trace.push({x,y,t:now});
+      if(GP.trace.length>GP.maxTrace) GP.trace.shift();
 
-        // Angular speed
-        if(GP.lastAngleTime) {
-          const dt = (now - GP.lastAngleTime) / 1000;
-          if(dt > 0) {
-            const spd = Math.abs(delta) / dt;
+      const angle=Math.atan2(y,x)*180/Math.PI;
+      if(GP.prevAngle!==null){
+        let delta=angle-GP.prevAngle;
+        if(delta>180) delta-=360;
+        if(delta<-180) delta+=360;
+        GP.totalAngle+=delta;
+        GP.revCount=Math.floor(Math.abs(GP.totalAngle)/360);
+        const rv=document.getElementById('gp-revs');
+        if(rv) rv.textContent=GP.revCount;
+
+        if(GP.lastAngleTime){
+          const dt=(now-GP.lastAngleTime)/1000;
+          if(dt>0){
+            const spd=Math.abs(delta)/dt;
             GP.angularSpeeds.push(spd);
-            if(GP.angularSpeeds.length > 20) GP.angularSpeeds.shift();
-            const avgSpd = GP.angularSpeeds.reduce((a,b) => a+b, 0) / GP.angularSpeeds.length;
-            document.getElementById('gp-speed').textContent = Math.round(avgSpd) + '°/s';
-            if(GP.mode !== 'free') updateTempoFeedback(avgSpd);
+            if(GP.angularSpeeds.length>20) GP.angularSpeeds.shift();
+            const avg=GP.angularSpeeds.reduce((a,b)=>a+b,0)/GP.angularSpeeds.length;
+            const sp=document.getElementById('gp-speed');
+            if(sp) sp.textContent=Math.round(avg)+'°/s';
+            if(GP.mode!=='free') updateTempoFeedback(avg);
           }
         }
-        GP.lastAngleTime = now;
+        GP.lastAngleTime=now;
       }
-      GP.prevAngle = angle;
+      GP.prevAngle=angle;
 
-      // Radius
-      if(GP.trace.length > 5) {
-        const recentMags = GP.trace.slice(-20).map(p => Math.sqrt(p.x*p.x + p.y*p.y));
-        const avgR = recentMags.reduce((a,b) => a+b, 0) / recentMags.length;
-        document.getElementById('gp-radius').textContent = avgR.toFixed(2);
+      if(GP.trace.length>5){
+        const rm=GP.trace.slice(-20).map(p=>Math.sqrt(p.x*p.x+p.y*p.y));
+        const avgR=rm.reduce((a,b)=>a+b,0)/rm.length;
+        const rad=document.getElementById('gp-radius');
+        if(rad) rad.textContent=avgR.toFixed(2);
       }
 
-      // Sequence detection
-      const dir = getDir(x, y);
-      if(dir && dir !== GP.seqLastDir) {
-        GP.seqLastDir = dir;
+      const dir=getDir(x,y);
+      if(dir&&dir!==GP.seqLastDir){
+        GP.seqLastDir=dir;
         GP.seqDirs.push(dir);
-        if(GP.seqDirs.length > 12) GP.seqDirs.shift();
-        renderSeqDisplay();
-        checkSeqMatch();
+        if(GP.seqDirs.length>12) GP.seqDirs.shift();
+        renderSeqDisplay(); checkSeqMatch();
       }
     } else {
-      GP.prevAngle = null;
-      GP.lastAngleTime = null;
-      GP.angularSpeeds = [];
+      GP.prevAngle=null; GP.lastAngleTime=null; GP.angularSpeeds=[];
     }
   }
 }
 
-function gpSetConnected(name) {
-  GP.connected = true;
-  document.getElementById('gp-dot').style.background = 'var(--green)';
-  document.getElementById('gp-msg').textContent = 'Manette connectée — bouge le joystick gauche';
-  document.getElementById('gp-msg').style.color = 'var(--green)';
-  document.getElementById('gp-name').textContent = name.substring(0, 40);
+// ─── DEADZONE SLIDER ─────────────────────────────────────────────────────────
+function updateDeadzone(val){
+  GP.deadzone=parseFloat(val);
+  const lbl=document.getElementById('dz-label');
+  if(lbl) lbl.textContent=GP.deadzone.toFixed(2);
+}
+
+// ─── CONNECTION ──────────────────────────────────────────────────────────────
+function gpSetConnected(name){
+  GP.connected=true;
+  document.getElementById('gp-dot').style.background='var(--green)';
+  document.getElementById('gp-msg').textContent='Manette connectée — bouge le joystick gauche';
+  document.getElementById('gp-msg').style.color='var(--green)';
+  document.getElementById('gp-name').textContent=name.substring(0,42);
   if(!GP.rafId) gpLoop();
 }
 
-window.addEventListener('gamepadconnected', e => gpSetConnected(e.gamepad.id));
-window.addEventListener('gamepaddisconnected', () => {
-  GP.connected = false;
-  document.getElementById('gp-dot').style.background = 'var(--red)';
-  document.getElementById('gp-msg').textContent = 'Manette déconnectée';
-  document.getElementById('gp-msg').style.color = 'var(--red)';
+window.addEventListener('gamepadconnected',e=>gpSetConnected(e.gamepad.id));
+window.addEventListener('gamepaddisconnected',()=>{
+  GP.connected=false;
+  document.getElementById('gp-dot').style.background='var(--red)';
+  document.getElementById('gp-msg').textContent='Manette déconnectée';
+  document.getElementById('gp-msg').style.color='var(--red)';
 });
 
-// Auto-detect already-connected gamepad (some browsers need a button press first)
-(function checkExisting() {
-  const gps = navigator.getGamepads ? navigator.getGamepads() : [];
-  for(let i=0;i<gps.length;i++) { if(gps[i]) { gpSetConnected(gps[i].id); break; } }
+// Auto-detect
+(function(){
+  const gps=navigator.getGamepads?navigator.getGamepads():[];
+  for(let i=0;i<gps.length;i++){if(gps[i]){gpSetConnected(gps[i].id);break;}}
 })();
+
+// ─── INIT THREE.JS ───────────────────────────────────────────────────────────
+// On attend que la page gamepad soit visible avant d'init Three (canvas doit avoir une taille)
+const _gpNavBtn = document.querySelector('.nav-item[onclick*="gamepad"]');
+if(_gpNavBtn){
+  _gpNavBtn.addEventListener('click', ()=>{
+    setTimeout(()=>{
+      if(!THREE_SCENE) initThree();
+    }, 80);
+  });
+}
 
 renderOutils();
 renderSeriesPage();
